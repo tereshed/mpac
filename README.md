@@ -1,5 +1,7 @@
 # MPAC · Multi Project Agent Control
 
+[Руководство пользователя на русском со скриншотами](docs/user-guide.ru.md)
+
 MPAC is a local workspace for terminal agents. Group repositories into projects,
 start CLI sessions, read replies and files, and review changes across project roots.
 The Rust service runs agents on your computer. The React workspace is available in
@@ -29,7 +31,7 @@ real agents, install and authenticate the respective CLI separately.
 On macOS, build a local native app with `./scripts/build-desktop.sh`. The signed
 bundle is created under `target/release/bundle/macos/MPAC.app`. To run the Rust
 host on Linux x86-64, build the host binaries locally with
-`./scripts/build-linux-host.sh` and Docker. Serve the built UI alongside the daemon.
+`sh scripts/build-linux-host.sh` and Docker. Serve the built UI alongside the daemon.
 
 ## Mobile development
 
@@ -48,8 +50,8 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-linux-android
 (cd mobile && ../desktop/node_modules/.bin/tauri android init --ci --skip-targets-install)
 ```
 
-Run `./scripts/build-mobile.sh ios` for the Apple Silicon simulator or
-`./scripts/build-mobile.sh android` for an Android debug APK. Initialize only
+Run `sh scripts/build-mobile.sh ios` for the Apple Silicon simulator or
+`sh scripts/build-mobile.sh android` for an Android debug APK. Initialize only
 the platform you need. For iOS device distribution, configure your own Apple
 team and app identity, set `APPLE_DEVELOPMENT_TEAM`, and use
 `./scripts/build-testflight.sh BUILD_NUMBER`. A self-hosted Universal Links
