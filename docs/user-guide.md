@@ -9,6 +9,7 @@ Agents run on the **computer hosting MPAC**. That computer holds the repositorie
 - [Agent activity and replies](#agent-activity-and-replies)
 - [Files and Git review](#files-and-git-review)
 - [Connect an iPhone, iPad, or Android device](#connect-an-iphone-ipad-or-android-device)
+  - [Invite TestFlight testers](#invite-testflight-testers)
 - [Work from a phone or tablet](#work-from-a-phone-or-tablet)
 - [Troubleshooting](#troubleshooting)
 
@@ -131,6 +132,15 @@ The public repository provides source and build scripts. Installation depends on
 - **Build from source.** Initialize the platform using the [mobile development instructions](../README.md#mobile-development). Run `sh scripts/build-mobile.sh ios` for the Apple Silicon iOS Simulator or `sh scripts/build-mobile.sh android` for Android. Use `./scripts/build-testflight.sh BUILD_NUMBER` with your own signing configuration for an iOS distribution build.
 
 A TestFlight invitation installs the app. An MPAC pairing invitation connects the installed app to a workspace.
+
+### Invite TestFlight testers
+
+Open [App Store Connect](https://appstoreconnect.apple.com/) and select **Apps → MPAC → TestFlight**. Choose a group based on who you want to invite:
+
+- **Someone outside your Apple developer team:** Use **External Testing**. Select or create a group and add a build eligible for external testing. Fill in **What to Test** and submit the build for TestFlight App Review if prompted. Once the build is available for testing, open the group, click **+** next to **Testers**, and choose **Email** to invite that person. For a wider beta, you can enable a **Public Link** for the group. External testers do not need an App Store Connect role. [Apple's external testing instructions](https://developer.apple.com/help/app-store-connect/test-a-beta-version/invite-external-testers/).
+- **An existing team member with access to MPAC:** Use **Internal Testing**. Select your group and make sure it has a build available. Click **Invite Testers** (or **+** next to **Testers**), select the team member, and click **Add**. [Apple's internal testing instructions](https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers/).
+
+On the iPhone or iPad, install [TestFlight](https://testflight.apple.com/), open the invitation, tap **Accept**, then tap **Install** for MPAC. To connect the app to a workspace, follow the pairing steps below and approve the device on the host.
 
 ### Pair for the first time over Wi-Fi
 

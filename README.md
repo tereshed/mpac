@@ -58,6 +58,9 @@ team and app identity, set `APPLE_DEVELOPMENT_TEAM`, and use
 deployment also needs your app identity and the corresponding association files
 on your HTTPS domain.
 
+See [how to invite TestFlight testers](docs/user-guide.md#invite-testflight-testers)
+to share an iPhone or iPad beta build.
+
 In MPAC Desktop, open **Settings & connections → Phone & Telegram**, select a
 local or Tailscale address, then create a pairing link. Open it in the phone app
 and verify the matching code on the Mac. Sessions and project files stay on the host.
