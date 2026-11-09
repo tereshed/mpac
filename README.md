@@ -1,6 +1,6 @@
 # MPAC · Multi Project Agent Control
 
-[Руководство пользователя на русском со скриншотами](docs/user-guide.ru.md)
+[User guide with screenshots](docs/user-guide.md)
 
 MPAC is a local workspace for terminal agents. Group repositories into projects,
 start CLI sessions, read replies and files, and review changes across project roots.

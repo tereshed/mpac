@@ -1,15 +1,15 @@
-# ENV-файл для сессии
+# Session environment files
 
-При запуске новой сессии можно выбрать **любой файл с переменными окружения**, независимо от его имени и расширения. Поле **Загрузить ENV из файла** предлагает файловый picker и ручной путь: абсолютный либо относительно выбранной рабочей папки. В picker есть скрытые файлы, навигация и поиск; содержимое файла не открывается.
+In **New session**, use **Load ENV from a file** to choose an environment file for the CLI. The filename and extension are arbitrary. Browse or search for the file, including hidden files, or enter an absolute path or a path relative to the working folder. The picker lists files without showing their contents.
 
-Для GLM через существующий `.env.zai` выберите **Claude Code**, включите загрузку ENV и укажите этот файл. Для эквивалента `--dangerously-skip-permissions` отдельно выберите **Пропускать проверки разрешений** и подтвердите этот режим. Выбор ENV не меняет доступ агента.
+For an existing Z.ai/GLM setup, choose **Claude Code** and load your prepared environment file, such as `.env.zai`. Agent permissions are configured separately. If you need the equivalent of `--dangerously-skip-permissions`, explicitly choose and confirm that access mode.
 
-Поддерживаются UTF-8/BOM, CRLF, `KEY=value`, `export KEY=value`, комментарии, одинарные/двойные кавычки, многострочные значения и подстановки `$NAME`/`${NAME}`. Подстановка использует уже определённые значения файла, затем окружение daemon. `${NAME:-fallback}` не поддерживается и возвращает ошибку формата. Файл читается как данные; shell-команды не выполняются.
+MPAC supports UTF-8 with an optional BOM, CRLF, `KEY=value`, `export KEY=value`, comments, quoted and multiline values, and `$NAME` or `${NAME}` substitutions. Substitutions read values already defined in the file, then the daemon's environment. The `${NAME:-fallback}` form is unsupported. MPAC parses the file as data and does not evaluate shell commands.
 
-Переменные передаются только новому процессу CLI и его потомкам. Окружение самого сервиса и остальных сессий остаётся прежним. Файл читается один раз при запуске; последующее редактирование влияет на следующие запуски. В истории/SQLite сохраняются только путь и количество переменных, доступные в подробностях активности. Значения не возвращаются через API и не форматируются приложением в диагностике.
+The file is read once at launch. Only the new CLI and its descendants receive the variables. Session details show the file path and number of variables. Values are excluded from the session database, API responses, and MPAC diagnostic messages.
 
-Явно выбранный файл применяется после стандартной очистки API-переменных Claude/Codex: так можно задать собственный endpoint, авторизацию и модель. Провайдер и способ оплаты определяются CLI и выбранными ENV. Без выбранного файла действуют прежние настройки запуска. CLI выбирается из исходного PATH сервиса до применения пользовательского PATH.
+The chosen file is applied after the usual cleanup of provider API variables for Claude Code and Codex. This lets you set a provider endpoint, credentials, and model for that launch. The CLI and its configuration determine the billing route. MPAC resolves the CLI executable from the daemon's original PATH before applying any PATH from the file.
 
-Доступны Claude Code, Codex и Hermes; демо-сценарий ENV не принимает. Выбор относится к текущему запуску. Служебные `MPAC_EVENT_CHANNEL`/`MPAC_EVENT_PROVIDER` зарезервированы. Файл должен быть обычным, принадлежать текущему пользователю и не разрешать запись другим; symlink/FIFO/устройства не читаются. Ограничения: файл/сумма значений до 256 KiB, одно значение до 32 KiB, до 256 переменных. Явный `SHELL` проверяется как абсолютный исполняемый файл с фактическим `X_OK`.
+Environment files are supported for Claude Code, Codex, and Hermes. MPAC reserves `MPAC_EVENT_CHANNEL` and `MPAC_EVENT_PROVIDER`. Use a regular file owned by the current user that other users cannot write. Symlinks, pipes, and device files are rejected. Limits are 256 KiB for the file and combined values, 32 KiB per value, and 256 variables. An explicit `SHELL` must be an absolute executable path.
 
-Для старого daemon поле показывает необходимость обновления сервиса. UI проверяет capability `session_env_files` и не отправляет неподдерживаемые параметры. Потеря capability при открытой форме не приводит к запуску без уже выбранного ENV.
+If the host lacks the `session_env_files` capability, update it before using an environment file. MPAC will not launch a session without a selected file if support disappears while the form is open.

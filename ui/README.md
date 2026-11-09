@@ -1,6 +1,6 @@
 # MPAC UI
 
-React-интерфейс локального прототипа. Rust daemon отдаёт содержимое `dist/` и API с одного origin.
+This React workspace is served by the Rust daemon. The built files in `dist/` and the API share an origin.
 
 ```sh
 npm ci --ignore-scripts
@@ -8,12 +8,10 @@ npm run build
 npm test
 ```
 
-Для разработки: `npm run dev` слушает только `127.0.0.1`; API проксируется на фиксированный `127.0.0.1:4317`. Только локальный Vite proxy заменяет Host и Origin на адрес daemon. Проверки Host/Origin и политика CORS самого daemon остаются строгими. Production UI открывается напрямую через daemon без этого proxy.
+For development, `npm run dev` listens on `127.0.0.1` and proxies API calls to `127.0.0.1:4317`. The local Vite proxy rewrites the Host and Origin headers for the daemon. Production serves the interface directly from the daemon.
 
-Вход — по URL daemon с `#token=...` или ручному вводу токена. Fragment удаляется из адресной строки; кандидат сохраняется только после успешного чтения авторизованного состояния. Подтверждённый токен хранится в localStorage текущего origin, поэтому доступен новым вкладкам и после повторного открытия браузера. Старый sessionStorage используется как fallback и мигрирует после проверки; выход очищает оба хранилища. При блокировке storage вход продолжает работать в памяти текущей вкладки. Токен передаётся только в Authorization заголовке API.
+Sign in with the launch URL or enter the token manually. MPAC removes the token fragment from the address bar and verifies access to `/api/state` before saving the credential. The token is stored in local storage for the current origin and sent to the API in the Authorization header. Older session storage credentials migrate after validation. Sign-out clears both stores. If storage is unavailable, the current tab can keep the token in memory.
 
-Ручное подключение проверяет `/api/state` до сохранения токена. В поле принимается также полная ссылка запуска; запрос всегда идёт к API текущего origin. Ошибки авторизации, сети и таймаута показаны в форме. `npm test` использует встроенный test runner Node 22 с поддержкой TypeScript; браузерные сценарии проверяются отдельно.
+The terminal forwards PTY bytes to xterm and uses byte offsets to track the stream. Changing sessions starts replay from the beginning of the available stream. The interface indicates gaps in retained history. Process status describes the CLI process. Agent activity uses separate events when available.
 
-Терминал читает bounded PTY stream с byte offset и передаёт исходные bytes в xterm. При смене сессии поток перечитывается с нуля; обрезанная история отмечается. Статус процесса не интерпретируется как точный статус reasoning агента.
-
-Markdown не исполняет HTML и не загружает изображения. Относительные ссылки открывают файлы внутри выбранной папки через confined API; внешние HTTP(S) ссылки открываются отдельно без referrer.
+The Markdown viewer treats documents as data. Relative links open files within the selected folder through the workspace API. External HTTP and HTTPS links open separately without a referrer.
