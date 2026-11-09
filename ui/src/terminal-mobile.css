@@ -1,0 +1,47 @@
+.terminal-mobile-controls{display:flex;align-items:center;gap:5px;flex-shrink:0;padding:3px 8px;background:#111d24;border-top:1px solid #30423e;min-height:44px}
+.terminal-surface{position:relative;display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden}
+.terminal-presentation{display:flex;align-items:center;gap:5px;flex-shrink:0;min-height:36px;padding:2px 8px;border-bottom:1px solid #2b3d37;background:#101c22}
+.terminal-presentation>button{min-height:32px;padding:5px 10px;border:1px solid #3b514b;border-radius:6px;font-size:12px;color:#b7ccc3;white-space:nowrap}
+.terminal-presentation>button[aria-pressed=true]{background:#2a3b31;color:#d4e9cb}
+.terminal-presentation>span{font-size:10px;color:#96ada2;margin-left:auto}
+.terminal-passive{overflow:auto;overscroll-behavior:contain;touch-action:pan-x pan-y pinch-zoom;-webkit-overflow-scrolling:touch}
+.terminal-passive>.terminal-host{flex:none;min-height:0;max-width:none}
+.terminal-passive .terminal-touch{touch-action:pan-x pan-y pinch-zoom}
+.terminal-reading{overflow:hidden}
+.terminal-reading>.terminal-host{position:absolute;top:0;left:0;opacity:0;pointer-events:none}
+.terminal-reading-text{position:relative;flex:1;min-height:0;width:100%;overflow:auto;overscroll-behavior:contain;touch-action:pan-y pinch-zoom;-webkit-overflow-scrolling:touch;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#d7dfeb;background:#0c1016;margin:0;padding:12px}
+.terminal-mobile-controls>button{min-height:44px;padding:6px 9px;border:1px solid #3b514b;border-radius:6px;font-size:12px;white-space:nowrap;color:#b7ccc3}
+.terminal-mobile-controls>button[aria-pressed=true]{background:#2a3b31;color:#d4e9cb}
+.terminal-mobile-controls>.terminal-mobile-send{background:#bfdfa6;color:#192b1b;border-color:#bfdfa6;font-weight:600;margin-left:auto;min-width:92px}
+.terminal-touch{touch-action:pan-x pinch-zoom}
+.terminal-history-hidden,.terminal-composer[hidden]{display:none!important}
+.terminal-history{flex:1;min-height:0;display:flex;flex-direction:column;background:#0c1016}
+.terminal-history>p{padding:8px 12px;font-size:11px;line-height:1.45;color:#9fb4a9;border-bottom:1px solid #2c4037;flex-shrink:0}
+.terminal-history>p>button{color:#c4dfa9;text-decoration:underline;min-height:36px;padding:4px 6px}
+.terminal-history>pre{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;touch-action:pan-y pinch-zoom;-webkit-overflow-scrolling:touch;user-select:text;-webkit-user-select:text;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;padding:12px;margin:0;color:#d7dfeb}
+.terminal-history-indicator{align-self:center;padding:0 8px;color:#e8c68c;font-size:13px}
+.terminal-answer-toggle,.terminal-answer-header>button{padding:4px 10px;border-left:1px solid #293644;color:#c4dfa9;font-size:12px;white-space:nowrap}
+.terminal-answer-toggle[aria-pressed=true]{background:#22342c}
+.terminal-answer-header{display:flex;align-items:stretch;min-height:44px;flex-shrink:0;background:#101821;border-bottom:1px solid #293644}
+.terminal-answer-header>div{flex:1;min-width:0;padding:5px 10px;display:flex;flex-direction:column;justify-content:center}
+.terminal-answer-header strong{font-size:12px}
+.terminal-answer-header time{font-size:10px;color:#9eafb9}
+.terminal-answer>pre{font-size:14px}
+.terminal-compose-actions>.terminal-paste-only{background:#20322a;border-color:#405647;color:#c1d2c3}
+@media(max-width:380px){.terminal-mobile-controls{gap:4px;padding:2px 5px}.terminal-mobile-controls>button{font-size:11px;padding:5px 6px}.terminal-mobile-controls>.terminal-mobile-send{min-width:82px}}
+.terminal-layout:has(.terminal-composer.expanded)>.terminal-mobile-controls{display:none}
+@media(max-width:740px){
+  .mobile-workspace.mobile-keyboard .terminal-layout:has(.terminal-composer.expanded)>.terminal-surface,.native-mobile-client .app-shell.mobile-keyboard .terminal-layout:has(.terminal-composer.expanded)>.terminal-surface{flex:0 1 32px;min-height:0}
+  /* Keep the explicit send action above the phone keyboard, even on short
+     viewports. The draft, rather than the PTY canvas, gets the available room. */
+  .mobile-workspace.mobile-keyboard .terminal-layout:has(.terminal-composer.expanded)>.terminal-host{flex:0 1 32px;min-height:0}
+  .mobile-workspace.mobile-keyboard .terminal-composer.expanded{display:flex;flex-direction:column;flex:1;min-height:0;max-height:none;overflow:hidden}
+  .mobile-workspace.mobile-keyboard .terminal-composer-toolbar{flex-shrink:0}
+  .mobile-workspace.mobile-keyboard .terminal-composer.expanded .terminal-compose-notice{display:none}
+  .mobile-workspace.mobile-keyboard .terminal-composer.expanded .terminal-draft-panel:not([hidden]){display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto;padding-bottom:8px}
+  .mobile-workspace.mobile-keyboard .terminal-composer.expanded .terminal-draft-panel>label{display:flex;flex-direction:column;flex:1;min-height:0}
+  .mobile-workspace.mobile-keyboard .terminal-composer.expanded .terminal-draft-panel textarea{flex:1;min-height:44px;max-height:none;resize:none}
+  .mobile-workspace.mobile-keyboard .terminal-composer.expanded .terminal-compose-actions{flex-shrink:0;justify-content:flex-end;flex-wrap:nowrap;margin-top:6px;gap:8px}
+  .mobile-workspace.mobile-keyboard .terminal-composer.expanded .terminal-compose-actions>p{display:none}
+  .mobile-workspace.mobile-keyboard .terminal-composer.expanded .terminal-compose-actions>button{min-height:44px;font-size:12px;padding:7px 9px;margin-left:0}
+}

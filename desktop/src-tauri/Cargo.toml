@@ -1,0 +1,27 @@
+[package]
+name = "mpac-desktop"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "=2.12.5", features = [] }
+url = "2"
+fs2 = "0.4"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+tokio.workspace = true
+axum = { version = "=0.8.9", features = ["ws"] }
+futures-util = { version = "0.3", features = ["sink"] }
+tokio-tungstenite = "=0.29.0"
+mpac-mobile-link = { path = "../../crates/mpac-mobile-link" }
+mpac-voice = { path = "../../crates/mpac-voice" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

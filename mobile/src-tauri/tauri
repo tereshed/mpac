@@ -1,0 +1,6 @@
+const path = require("node:path");
+const root = path.resolve(__dirname, "../..");
+process.env.CARGO_HOME = path.join(root, ".tools/cargo");
+process.env.RUSTUP_HOME = path.join(root, ".tools/rustup");
+process.env.PATH = path.join(root, ".tools/cargo/bin") + path.delimiter + process.env.PATH;
+require(path.resolve(__dirname, "../../desktop/node_modules/@tauri-apps/cli/tauri.js"));

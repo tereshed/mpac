@@ -1,0 +1,17 @@
+.env-file-picker { min-width: 0; }
+.env-picker-hidden-note { margin-left: auto; font-size: 9px; color: #8da5b9; text-align: right; }
+.env-picker-entry.selected { background: #233c2c; box-shadow: inset 0 0 0 1px #8fbb7d; color: #e5f0dc; }
+.env-picker-entry>small { color: #7e96a8; flex-shrink: 0; font-size: 9px; }
+.env-picker-entry>span:last-child { width: 12px; min-height: 20px; text-align: center; }
+.env-picker-entry.selected>span:last-child { color: #b7de9b; font-size: 14px; }
+.env-picker-privacy { color: #8da5b9; font-size: 10px; line-height: 1.7; margin: 12px 0 0; }
+.env-file-picker .directory-selection { margin-top: 11px; }
+.env-picker-no-selection { color: #95a7b6 !important; font-size: 10px !important; }
+@media(max-width:740px) {
+  .env-picker-hidden-note { font-size: 8px; }
+  .env-picker-entry { gap: 8px; min-height: 44px; }
+  .env-picker-entry>small { font-size: 8px; }
+  .env-picker-privacy { font-size: 9px; }
+  .env-file-picker .modal-actions { flex-wrap: wrap; }
+  .env-file-picker .modal-actions .button { min-height: 44px; flex: 1; }
+}

@@ -1,0 +1,98 @@
+--- a/src/platform_impl/ios/app_state.rs
++++ b/src/platform_impl/ios/app_state.rs
+@@ -562,6 +562,16 @@
+       let () = msg_send![window, release];
+     }
+   }
++  // UIKit can return nil on ordinary launches despite the nonnull annotation.
++  let contexts: id = msg_send![options, URLContexts];
++  if !contexts.is_null() {
++    super::scene::emit_opened_from_url_contexts(&*contexts.cast());
++  }
++  // Universal Links arrive as user activities, including on a cold launch.
++  let activities: id = msg_send![options, userActivities];
++  if !activities.is_null() {
++    super::scene::emit_opened_from_user_activities(&*activities.cast());
++  }
+ }
+ 
+ pub unsafe fn register_window_for_scene(window: id) {
+--- a/src/platform_impl/ios/scene.rs
++++ b/src/platform_impl/ios/scene.rs
+@@ -59,6 +59,30 @@
+   }
+ }
+ 
++// Startup URL contexts use the same safe delivery path as warm links.
++pub(crate) unsafe fn emit_opened_from_url_contexts(contexts: &NSSet<UIOpenURLContext>) {
++  let urls = contexts.iter().filter_map(|ctx| {
++    ctx.URL().absoluteString().and_then(|value| value.to_string().parse().ok())
++  }).collect::<Vec<url::Url>>();
++  if !urls.is_empty() {
++    app_state::handle_nonuser_event(EventWrapper::StaticEvent(Event::Opened { urls }));
++  }
++}
++
++pub(crate) unsafe fn emit_opened_from_user_activity(activity: &NSUserActivity) {
++  if let Some(url) = activity.webpageURL().and_then(|url| url.absoluteString())
++    .and_then(|url| url.to_string().parse::<url::Url>().ok())
++  {
++    app_state::handle_nonuser_event(EventWrapper::StaticEvent(Event::Opened { urls: vec![url] }));
++  }
++}
++
++pub(crate) unsafe fn emit_opened_from_user_activities(activities: &NSSet<NSUserActivity>) {
++  for activity in activities.iter() {
++    emit_opened_from_user_activity(&activity);
++  }
++}
++
+ define_class!(
+   #[unsafe(super(NSObject))]
+   #[name = "TaoSceneDelegate"]
+@@ -124,26 +148,7 @@
+ 
+     #[unsafe(method(scene:openURLContexts:))]
+     fn scene_openURLContexts(&self, _scene: &UIScene, url_contexts: &NSSet<UIOpenURLContext>) {
+-      unsafe {
+-        let urls: Vec<url::Url> = url_contexts
+-          .iter()
+-          .filter_map(|ctx| {
+-            ctx.URL().absoluteString().and_then(|url| {
+-              let url = url.to_string();
+-              url
+-                .parse()
+-                .map_err(|e| {
+-                  log::error!("failed to parse URL {url} from scene:openURLContexts: {e}");
+-                  e
+-                })
+-                .ok()
+-            })
+-          })
+-          .collect();
+-        if !urls.is_empty() {
+-          app_state::handle_nonuser_event(EventWrapper::StaticEvent(Event::Opened { urls }));
+-        }
+-      }
++      unsafe { emit_opened_from_url_contexts(url_contexts); }
+     }
+ 
+     #[unsafe(method(stateRestorationActivityForScene:))]
+@@ -173,16 +178,7 @@
+     #[unsafe(method(scene:continueUserActivity:))]
+     fn scene_continueUserActivity(&self, _scene: &UIScene, user_activity: &NSUserActivity) {
+       unsafe {
+-        // universal app links
+-        if let Some(url) = user_activity
+-          .webpageURL()
+-          .and_then(|url| url.absoluteString())
+-        {
+-          let url = url.to_string().parse::<url::Url>().unwrap();
+-          app_state::handle_nonuser_event(EventWrapper::StaticEvent(Event::Opened {
+-            urls: vec![url],
+-          }));
+-        }
++        emit_opened_from_user_activity(user_activity);
+       }
+     }
+ 

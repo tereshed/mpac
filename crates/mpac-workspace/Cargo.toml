@@ -1,0 +1,16 @@
+[package]
+name = "mpac-workspace"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+cap-std = "=4.0.3"
+sha2 = "0.10.9"
+process-wrap = { version = "=10.0.1", default-features = false, features = ["std", "job-object", "process-group"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

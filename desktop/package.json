@@ -1,0 +1,14 @@
+{
+  "name": "mpac-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "build": "../scripts/build-desktop.sh",
+    "build:debug": "../scripts/build-desktop.sh --debug",
+    "prepare:resources": "../scripts/prepare-desktop.sh"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

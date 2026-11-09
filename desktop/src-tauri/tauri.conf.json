@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MPAC",
+  "version": "0.1.0",
+  "identifier": "com.mpac.desktop",
+  "build": {
+    "frontendDist": "../launcher"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": false,
+    "security": {
+      "capabilities": [],
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "category": "DeveloperTool",
+    "shortDescription": "Your local CLI agents in one workspace",
+    "icon": ["icons/icon.icns", "icons/128x128.png", "icons/128x128@2x.png", "icons/32x32.png"],
+    "externalBin": ["binaries/mpac-daemon", "binaries/mpac-mobile-host"],
+    "resources": {"resources/ui/": "ui/"},
+    "macOS": {"minimumSystemVersion": "12.0", "signingIdentity": "-", "entitlements": "Entitlements.plist"}
+  }
+}

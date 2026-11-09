@@ -1,0 +1,66 @@
+/* Touch controls keep a real, focusable input visible. Opening the keyboard
+   never depends on focusing xterm after an asynchronous request. */
+.terminal-composer-toolbar[hidden]{display:none!important}
+.terminal-keypad{flex-shrink:0;background:#111d24;border-top:1px solid #30423e}
+.terminal-keypad .terminal-mobile-controls{border-top:0;gap:5px;padding:3px 8px}
+.terminal-keypad .terminal-mobile-controls>button{min-width:44px;min-height:44px;padding:5px 8px;font-size:18px}
+.terminal-keypad .terminal-mobile-controls>.terminal-mobile-send{font-size:13px;min-width:82px}
+.terminal-extra-keys{padding:6px 8px;border-bottom:1px solid #30423e}
+.terminal-extra-keys>p{font-size:12px;line-height:1.45;color:#aec4b8;padding:0 0 6px}
+.terminal-extra-keys>div{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:5px}
+.terminal-extra-keys button{min-width:0;min-height:44px;border:1px solid #3b514b;border-radius:6px;color:#c9dbd1;font-size:13px;padding:4px}
+.terminal-layout:has(.touch-composer.expanded)>.terminal-keypad{display:none}
+.touch-composer .terminal-draft-panel textarea{font-size:16px;line-height:1.45}
+.touch-composer:not(.expanded){max-height:45%;overflow:auto}
+.touch-composer:not(.expanded) .terminal-draft-panel{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:end;padding:6px 8px}
+.touch-composer:not(.expanded) .terminal-draft-panel>label{min-width:0;line-height:1}
+.touch-composer:not(.expanded) .terminal-draft-panel>label>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.touch-composer:not(.expanded) .terminal-draft-panel textarea{margin:0;min-height:44px;max-height:112px;padding:10px;resize:none;vertical-align:bottom}
+.touch-composer:not(.expanded) .terminal-compose-actions{display:flex;flex-wrap:nowrap;gap:5px;margin:0;align-items:center}
+.touch-composer .terminal-input-more{background:#20322a;border-color:#405647;color:#c1d2c3;min-width:44px}
+.touch-composer .terminal-input-more>small{font-size:10px;margin-left:3px}
+.touch-composer:not(.expanded) .terminal-compose-actions>button{min-height:44px;padding:7px 9px;font-size:12px;margin:0}
+.touch-composer:not(.expanded) .terminal-compose-actions>.terminal-paste-only,.touch-composer:not(.expanded) .terminal-compose-actions>p,.touch-composer:not(.expanded) .terminal-compose-help,.touch-composer:not(.expanded) .terminal-staged-files,.touch-composer:not(.expanded) .terminal-inserted-files,.touch-composer:not(.expanded) .terminal-compose-notice{display:none}
+.touch-composer.expanded .terminal-input-more{order:3}
+.touch-composer .terminal-compose-error{font-size:12px;line-height:1.45}
+@media(max-width:420px){.terminal-extra-keys>div{grid-template-columns:repeat(4,minmax(0,1fr))}.terminal-keypad .terminal-mobile-controls{justify-content:space-between;gap:4px;padding:3px 6px}.terminal-keypad .terminal-mobile-controls>.terminal-mobile-send{margin-left:0;min-width:78px}.touch-composer:not(.expanded) .terminal-draft-panel{gap:5px;padding-inline:6px}}
+/* Tablet is a touch workspace, with an optional project rail and legible text. */
+.tablet-workspace .project-rail{width:248px;padding:12px 8px 8px}
+.tablet-workspace:not(.tablet-projects-open) .project-rail{display:none}
+.tablet-projects-toggle{display:grid;place-items:center;min-width:44px;min-height:44px;border:1px solid #35493e;border-radius:6px;color:#c5d9cb;font-size:21px}
+.tablet-workspace.session-workspace .workspace-header{height:52px;min-height:52px;padding:4px 10px}
+.tablet-workspace .workspace-header h1{font-size:17px}
+.tablet-workspace .header-title{gap:8px}
+.tablet-workspace .breadcrumb,.tablet-workspace .prototype-badge,.tablet-workspace .header-session-summary,.tablet-workspace .header-actions>.connection{display:none}
+.tablet-workspace .header-actions{gap:8px}
+.tablet-workspace .header-actions>.button{min-width:44px;min-height:44px;padding:8px 12px;font-size:14px}
+.tablet-workspace .language-switcher select{font-size:14px;min-height:44px}
+.tablet-workspace .brand{margin:0 8px 16px}
+.tablet-workspace .rail-heading{font-size:12px}
+.tablet-workspace .project-item-name{font-size:15px}
+.tablet-workspace .project-item-name small{font-size:12px}
+.tablet-workspace .project-item{min-height:60px;gap:8px;padding:8px}
+.tablet-workspace .project-expand,.tablet-workspace .project-actions-trigger,.tablet-workspace .session-delete-trigger,.tablet-workspace .nested-session-new{min-width:36px;min-height:44px}
+.tablet-workspace .nested-session-select{min-height:56px}
+.tablet-workspace .nested-session-copy strong{font-size:14px;line-height:1.4}
+.tablet-workspace .nested-session-copy>small{display:none}
+.tablet-workspace .nested-session-copy .activity-state{font-size:12px;line-height:1.5}
+.tablet-workspace .nested-session-age{font-size:10px}
+.tablet-workspace .session-orb{width:44px;height:44px;font-size:16px}
+.tablet-workspace .session-dots-hint{font-size:12px}
+.tablet-workspace .workspace-tools-trigger{min-height:44px;font-size:13px}
+.tablet-workspace.session-workspace .workbench{margin:0 8px 8px}
+.tablet-workspace.session-workspace .repository-toolbar{min-height:48px;padding:2px 8px;gap:8px}
+.tablet-workspace.session-workspace .repository-toolbar select{font-size:14px}
+.tablet-workspace .terminal-reading-text{font-size:15px;line-height:1.5;padding:12px}
+.tablet-workspace .terminal-presentation{min-height:40px}
+.tablet-workspace .terminal-presentation>button{min-height:36px;font-size:13px}
+.tablet-workspace .source-view{font-size:14px}
+.tablet-workspace .markdown{font-size:16px}
+.tablet-workspace .rail-bottom{padding-top:12px}
+@media(min-width:741px) and (max-width:1099px){.tablet-workspace .header-actions>.button>span{display:none}.tablet-workspace .repository-toolbar .root-select>span,.tablet-workspace .repository-toolbar .branch-picker>span{display:none}.tablet-workspace .repository-toolbar .root-select{flex:0 1 150px}.tablet-workspace .repository-toolbar .branch-control{flex:1 1 170px;max-width:240px}}
+
+@media(max-width:740px){
+  .mobile-workspace.mobile-keyboard .workspace{padding-bottom:0}
+  .mobile-workspace .mobile-navigation.keyboard-open:not(.has-sheet){display:none}
+}

@@ -1,0 +1,1 @@
+{"name":"mpac-mobile","version":"0.1.0","private":true,"scripts":{"tauri":"../desktop/node_modules/.bin/tauri"}}

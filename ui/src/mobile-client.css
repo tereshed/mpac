@@ -1,0 +1,49 @@
+.phone-connect{min-height:100dvh;background:radial-gradient(ellipse at top,#1e3227 0,transparent 65%),#0d1418;color:var(--text);padding:max(16px,env(safe-area-inset-top)) 20px max(24px,env(safe-area-inset-bottom));box-sizing:border-box}
+.native-mobile-client .app-shell.mobile-workspace{padding-top:env(safe-area-inset-top);box-sizing:border-box}
+.native-mobile-client .mobile-workspace .modal-backdrop{padding-top:max(16px,env(safe-area-inset-top));padding-bottom:max(16px,env(safe-area-inset-bottom))}
+.native-mobile-client .mobile-workspace .project-rail.mobile-open{padding-top:max(12px,env(safe-area-inset-top))}
+.phone-connect header{display:flex;align-items:center;justify-content:space-between;gap:16px}.phone-connect header .brand-symbol{width:44px;height:44px;font-size:36px}.phone-connect header select{max-width:150px}.phone-connect-body{max-width:480px;margin:40px auto}.phone-connect h1{font-size:clamp(30px,8vw,42px);line-height:1.12;letter-spacing:-.04em;margin:16px 0}.phone-connect p{color:#a5b6ac;line-height:1.55}.phone-connect form{display:grid;gap:18px;margin:28px 0}.phone-connect label{display:grid;gap:8px}.phone-connect input,.phone-connect textarea{width:100%;box-sizing:border-box;font-size:16px;min-height:48px}.phone-connect textarea{height:112px;resize:vertical;word-break:break-all}.phone-connect .button{min-height:44px}.phone-connect-hint{font-size:13px}.phone-connect form .phone-connect-hint{margin:0}.phone-pair-confirm{margin:28px 0;border:1px solid #40594a;border-radius:16px;padding:20px;background:#18271e}.phone-pair-confirm h2{font-size:20px}.phone-pair-code{display:block;font:38px ui-monospace,monospace;letter-spacing:.2em;color:#c7eba9}.phone-connect .inline-error{padding:14px;font-size:14px}
+
+/* iPad uses the available width for a persistent project/session sidebar.
+   Narrow windows keep the existing phone layout and thumb navigation. */
+@media (min-width:741px){
+  .native-mobile-client .app-shell{position:fixed;inset-inline:0;top:var(--mobile-viewport-top,0px);height:var(--mobile-viewport-height,100dvh);min-height:0;box-sizing:border-box;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+  .native-mobile-client .project-rail{width:230px;padding:16px 10px 10px}
+  .native-mobile-client .workspace-header{height:60px;padding:6px 16px}
+  .native-mobile-client .workspace-header h1{font-size:18px}
+  .native-mobile-client .overview-bar{padding:10px 16px;min-height:44px}
+  .native-mobile-client .workbench{margin:0 10px 8px}
+  .native-mobile-client .workspace-footer{display:none}
+  .native-mobile-client .panel-tabs{min-height:48px;height:auto;padding:0 10px;gap:8px}
+  .native-mobile-client .panel-tabs>button{min-height:44px;font-size:14px;padding:0 9px}
+  .native-mobile-client .button,.native-mobile-client .icon-button,.native-mobile-client select,.native-mobile-client .file-row,.native-mobile-client .terminal-composer-toolbar>button{min-height:44px}
+  .native-mobile-client .project-item{min-height:56px}
+  .native-mobile-client .project-item-name{font-size:14px}
+  .native-mobile-client .file-tree{width:185px}
+  .native-mobile-client .file-row,.native-mobile-client .markdown{font-size:14px}
+  .native-mobile-client .source-view{font-size:13px}
+  .native-mobile-client .terminal-draft-panel textarea{font-size:16px}
+  .native-mobile-client .modal-backdrop{padding:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left))}
+}
+@media (min-width:741px){
+  .native-mobile-client .app-shell.mobile-keyboard .workspace-header,
+  .native-mobile-client .app-shell.mobile-keyboard .overview-bar,
+  .native-mobile-client .app-shell.mobile-keyboard .repository-toolbar,
+  .native-mobile-client .app-shell.mobile-keyboard .execution-banner,
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-caption{display:none}
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-host{min-height:60px}
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-composer.expanded .terminal-draft-panel textarea{min-height:60px;max-height:min(120px,calc(var(--mobile-viewport-height,100dvh) * .25))}
+}
+@media (min-width:741px){
+  /* Let the textarea shrink so the paste action remains visible. */
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-footer{display:none}
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-layout:has(.terminal-composer.expanded)>.terminal-host{flex:0 1 60px;min-height:0}
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-composer.expanded{display:flex;flex-direction:column;flex:1;min-height:0;max-height:none;overflow:hidden}
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-composer-toolbar{flex-shrink:0}
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-composer.expanded .terminal-draft-panel:not([hidden]){display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto;padding-bottom:8px}
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-composer.expanded .terminal-draft-panel>label{display:flex;flex-direction:column;flex:1;min-height:0}
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-composer.expanded .terminal-draft-panel textarea{flex:1;min-height:44px;resize:none}
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-composer.expanded .terminal-compose-actions{flex-shrink:0;justify-content:flex-end;margin-top:6px}
+  .native-mobile-client .app-shell.mobile-keyboard .terminal-composer.expanded .terminal-compose-actions>p{display:none}
+  .native-mobile-client .terminal-compose-actions>button{min-height:44px}
+}

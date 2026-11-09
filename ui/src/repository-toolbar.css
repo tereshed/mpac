@@ -1,0 +1,22 @@
+.repository-toolbar{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;padding:10px 15px;border-bottom:1px solid #2d3b49;background:#111922;flex-shrink:0;min-width:0}
+.repository-toolbar .root-select{flex-shrink:0}
+.repository-toolbar .branch-control{max-width:330px;min-width:160px}
+.repository-toolbar .branch-picker select{max-width:245px}
+.repository-toolbar .branch-blocked{max-width:320px;font-size:9px;margin-top:5px}
+.repository-change-count{font-size:10px;color:#a7b8bc;align-self:center}
+.repository-path{font-size:9px;color:#728b9a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:80px;align-self:center}
+.repository-toolbar>.icon-button{margin-left:auto}
+.commit-list-actions{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+.commit-list-actions button{font-size:11px;color:#b6cfba;padding:6px}
+.commit-file-list{max-height:42dvh;overflow:auto;border-block:1px solid #33434f;padding:7px 0}
+.commit-file-list label{display:flex;align-items:flex-start;gap:10px;padding:9px 3px;margin:0;cursor:pointer}
+.commit-file-list input[type=checkbox]{width:15px;flex-shrink:0;margin:3px 0;accent-color:#b9e5a4}
+.commit-file-list strong{display:block;font:11px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
+.commit-file-list small{display:block;color:#91a7b2;font-size:10px;margin-top:3px}
+.commit-preview-context{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:11px;color:#b5c6ca;margin-bottom:10px}
+.commit-preview-paths{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.commit-preview-paths code{font-size:10px;overflow-wrap:anywhere;background:#14202a;padding:4px 6px;border-radius:4px}
+.commit-diff-preview{font:11px/1.7 ui-monospace,SFMono-Regular,monospace;background:#0d151d;border:1px solid #324451;padding:12px;max-height:36dvh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;border-radius:6px;margin:10px 0 15px}
+.commit-success strong{display:block;font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere;color:#bde0b5}
+.commit-success p{font-size:11px;line-height:1.8;margin-top:10px;color:#a4bab9}
+@media(max-width:740px){.repository-toolbar{padding:9px 10px;gap:8px}.repository-toolbar .branch-control{max-width:none;flex:1;min-width:130px}.repository-toolbar .branch-picker select{max-width:none}.repository-path{display:none}.repository-change-count{font-size:9px}.repository-toolbar .branch-blocked{font-size:9px}.commit-diff-preview{font-size:11px}.commit-file-list strong{font-size:11px}}

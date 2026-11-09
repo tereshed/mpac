@@ -1,0 +1,91 @@
+@media (max-width:740px) {
+  .app-shell.mobile-workspace{height:var(--mobile-viewport-height,100dvh);min-height:0;position:fixed;top:var(--mobile-viewport-top,0px);inset-inline:0}
+  .mobile-workspace .workspace{padding-bottom:var(--mobile-dock-height,112px);min-height:0}
+  .mobile-workspace .workspace-header{height:52px;padding:4px 12px;gap:8px}
+  .mobile-workspace .workspace-header .mobile-menu,.mobile-workspace .breadcrumb,.mobile-workspace .prototype-badge{display:none}
+  .mobile-workspace .workspace-header h1{font-size:15px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mobile-workspace .workspace-header .button{font-size:12px;min-height:40px;padding:7px 11px}
+  .mobile-workspace .overview-bar{display:none}
+  .mobile-workspace .workbench{margin:0;border:0;border-radius:0;min-height:0;box-shadow:none}
+  .mobile-workspace .main-panel{min-height:0}
+  .mobile-workspace .workspace-footer{display:none}
+  .mobile-workspace .panel-tabs{height:46px;min-height:46px;padding:0 7px;gap:2px}
+  .mobile-workspace .panel-tabs>button:not(.stop-button){min-height:44px;height:44px;font-size:12px;padding:0 7px}
+  .mobile-workspace .panel-tabs>button.session-panel-rename,.mobile-workspace .panel-tabs>button.session-panel-delete{min-width:36px;font-size:19px;padding:0 5px}
+  .mobile-workspace .panel-tabs .stop-button{min-width:36px;min-height:44px;font-size:13px;padding:0 8px}
+  .mobile-workspace .tab-session-name{display:none}
+  .mobile-workspace .execution-banner{min-height:24px;padding:4px 12px;font-size:10px}
+  .mobile-workspace .execution-path{font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mobile-workspace .activity-summary{font-size:12px;padding:6px 10px;gap:5px 9px}
+  .mobile-workspace .activity-summary>small{font-size:11px}
+  .mobile-workspace .activity-read,.mobile-workspace .activity-background{min-height:36px;padding:6px 8px;font-size:11px}
+  .mobile-workspace .terminal-caption{height:22px;padding:0 12px;font-size:9px;flex-shrink:0}
+  .mobile-workspace .terminal-caption>span{font-size:9px}
+  .mobile-workspace .terminal-caption>span:last-child{display:none}
+  .mobile-workspace .terminal-host{padding-left:10px}
+  .mobile-workspace .terminal-footer{display:none}
+  .mobile-workspace .terminal-composer{flex-shrink:0}
+  .mobile-workspace .terminal-composer-toolbar{padding:4px 8px;min-height:44px;gap:5px}
+  .mobile-workspace .terminal-composer-toolbar>button{min-height:36px;font-size:11px;padding:5px 8px}
+  .mobile-workspace .terminal-composer-toolbar>span{display:none}
+  .mobile-workspace .terminal-draft-panel textarea,.mobile-workspace .xterm-helper-textarea{font-size:16px}
+  .mobile-workspace .terminal-draft-panel textarea{min-height:70px;max-height:22dvh}
+  .mobile-workspace .terminal-compose-actions>button{min-height:44px;font-size:13px}
+  .mobile-workspace .terminal-compose-actions>p{font-size:10px}
+  .mobile-workspace .terminal-compose-error,.mobile-workspace .terminal-compose-notice{font-size:12px}
+  .mobile-workspace .mobile-repository-toggle{display:flex;align-items:center;gap:9px;min-height:40px;width:100%;padding:5px 12px;background:#111b22;color:#b5c8c4;border-bottom:1px solid #2c3a43;text-align:left;font-size:12px;flex-shrink:0}
+  .mobile-repository-toggle>span:first-child{max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mobile-repository-toggle>small{font-size:11px;color:#8ea29b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .mobile-workspace .repository-toolbar.mobile-collapsed{display:none}
+  .mobile-workspace .repository-toolbar{max-height:32dvh;overflow-y:auto;padding:10px;gap:10px;align-items:center}
+  .mobile-workspace .repository-toolbar .root-select{font-size:12px;flex:1;min-width:0}
+  .mobile-workspace .repository-toolbar select{font-size:16px;min-height:44px;max-width:100%}
+  .mobile-workspace .repository-toolbar .branch-control{flex-basis:100%;min-width:0;max-width:none}
+  .mobile-workspace .repository-toolbar .branch-picker{font-size:12px}
+  .mobile-workspace .repository-toolbar .branch-picker select{max-width:none;min-width:0}
+  .mobile-workspace .repository-toolbar .branch-blocked{font-size:11px;max-width:none}
+  .mobile-workspace .repository-toolbar .button{min-height:44px;font-size:13px}
+  .mobile-workspace .repository-toolbar .icon-button{min-height:44px;min-width:44px}
+  .mobile-workspace .repository-path{display:none}
+  .mobile-workspace .repository-change-count{font-size:12px}
+  .mobile-workspace .project-rail.mobile-open{padding-top:12px;padding-bottom:env(safe-area-inset-bottom);max-height:var(--mobile-viewport-height,100dvh);top:var(--mobile-viewport-top,0px);bottom:auto;height:100%}
+  .mobile-workspace .mobile-rail-close{min-height:44px;padding:10px;font-size:13px;flex-shrink:0;background:#26372e;color:#d2e8c8;border-radius:7px;margin:6px}
+  .mobile-workspace .connection-banner{font-size:12px;max-height:72px;overflow:auto}
+  .mobile-workspace .modal-backdrop{z-index:50;top:var(--mobile-viewport-top,0px);bottom:var(--mobile-viewport-bottom,0px)}
+  .mobile-workspace .modal{max-height:calc(var(--mobile-viewport-height,100dvh) - 32px);overflow-y:auto}
+  .mobile-workspace .mobile-navigation[aria-hidden=true]{visibility:hidden}
+  .mobile-workspace .modal input,.mobile-workspace .modal textarea,.mobile-workspace .modal select{font-size:16px}
+  .mobile-workspace .modal .button{min-height:44px;font-size:13px}
+  .mobile-workspace .modal h2{font-size:20px}
+  .mobile-workspace .modal-title p{font-size:13px}
+  .mobile-workspace.mobile-keyboard .workspace-header{display:none}
+  .mobile-workspace.mobile-keyboard .mobile-repository-toggle{display:none}
+  .mobile-workspace.mobile-keyboard .execution-banner{display:none}
+  .mobile-workspace.mobile-keyboard .terminal-caption{display:none}
+}
+@media(min-width:741px){.mobile-repository-toggle,.mobile-rail-close{display:none}}
+@media(max-width:360px){.mobile-workspace .workspace-header h1{max-width:130px}.mobile-workspace .panel-tabs>button:not(.stop-button){padding:0 5px;font-size:11px}.mobile-workspace .panel-tabs>button.session-panel-rename,.mobile-workspace .panel-tabs>button.session-panel-delete{min-width:30px;padding:0 3px}.mobile-workspace .panel-tabs .stop-button{min-width:30px;padding:0 5px}}
+
+@media(max-width:740px){
+  .mobile-workspace .workspace-header{height:48px;min-height:48px;padding-top:2px;padding-bottom:2px}
+  .mobile-workspace .panel-tabs{height:44px;min-height:44px}
+  .mobile-workspace .execution-banner,.mobile-workspace .terminal-caption{display:none}
+  .mobile-workspace .terminal-composer-toolbar{min-height:44px;padding:0 8px;flex-wrap:nowrap}
+  .mobile-workspace .terminal-composer-toolbar>button{min-height:44px;padding-top:5px;padding-bottom:5px}
+  .mobile-workspace .mobile-menu-notice{display:flex;align-items:center;gap:6px;padding:8px;border:1px solid #405c49;border-radius:6px;background:#21352a;color:#b9d5bc;font-size:12px;line-height:1.5;flex-shrink:0}
+  .mobile-workspace .mobile-menu-notice>span{flex:1;min-width:0;overflow-wrap:anywhere}
+  .mobile-workspace .mobile-menu-notice .icon-button{min-width:44px;min-height:44px}
+  .mobile-workspace .mobile-current-session{min-height:44px;padding-top:4px;padding-bottom:4px}
+  .mobile-workspace .mobile-current-session strong{font-size:13px;line-height:16px}
+  .mobile-workspace .mobile-current-session small{font-size:10px;line-height:12px;margin-top:1px}
+  .mobile-workspace .mobile-bottom-nav{padding-top:2px;padding-bottom:2px}
+  .mobile-workspace .mobile-bottom-nav>button{min-height:44px;font-size:12px;line-height:15px;gap:0;padding-top:2px;padding-bottom:2px}
+  .mobile-workspace .mobile-nav-icon{font-size:20px;line-height:21px}
+}
+@media(max-width:740px){
+  .mobile-workspace:has(.tab-content:not(.hidden) .mobile-terminal-focused) .workspace-header,
+  .mobile-workspace:has(.tab-content:not(.hidden) .mobile-terminal-focused) .mobile-repository-toggle,
+  .mobile-workspace:has(.tab-content:not(.hidden) .mobile-terminal-focused) .repository-toolbar,
+  .mobile-workspace:has(.tab-content:not(.hidden) .mobile-terminal-focused) .panel-tabs{display:none}
+}
+@media(max-width:740px){.mobile-workspace .project-rail.mobile-open{overflow-y:auto;overscroll-behavior:contain}}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MPAC Mobile",
+  "version": "0.1.0",
+  "identifier": "com.mpac.mobile",
+  "build": {"frontendDist": "../../ui/dist"},
+  "app": {
+    "windows": [],
+    "withGlobalTauri": true,
+    "security": {"capabilities": [], "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"}
+  },
+  "bundle": {"active": true, "targets": "all", "iOS": {"minimumSystemVersion": "15.0"}, "android": {"minSdkVersion": 26}},
+  "plugins": {"deep-link": {"mobile": [
+    {"scheme": ["mpac"], "appLink": false},
+    {"scheme": ["https"], "host": "mpac.works", "path": ["/open", "/open/"], "appLink": true}
+  ]}}
+}

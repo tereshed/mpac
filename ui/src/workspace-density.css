@@ -1,0 +1,52 @@
+/* The workspace reserves its vertical space for the terminal. */
+.session-workspace .workspace-header{height:48px;padding:0 16px;gap:12px}
+.session-workspace .header-actions{gap:14px}
+.header-session-summary{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.header-session-summary .overview-inline-stat{font-size:10px;gap:5px}
+.header-session-summary .overview-attention{min-height:28px}
+.session-workspace .workbench{margin:8px 12px 0}
+.session-workspace .workspace-footer{height:20px}
+.session-workspace .panel-tabs{height:36px;min-height:36px;padding-inline:12px}
+.session-workspace .panel-tabs>button:not(.stop-button){height:36px}
+.session-workspace .stop-button{padding:5px 9px;min-height:28px;font-size:10px}
+.workspace-tools-trigger{display:flex;align-items:center;gap:9px;width:100%;padding:9px 8px;border:1px solid #334139;border-radius:6px;color:#a7b9ae;font-size:11px;text-align:left}
+.workspace-tools-trigger:hover{background:#26332b;color:#d6e7d3}
+.workspace-tools-trigger>.tiny-dot{margin-left:auto}
+.workspace-tools-trigger>span:first-child{font-size:16px}
+.workspace-tools-list{display:flex;flex-direction:column;gap:6px}
+.workspace-tools-list>.archived-projects-trigger,.workspace-tools-list .telegram-shortcut>button{width:100%;margin:0;padding:10px;text-align:left;min-height:38px;border:1px solid #334139;border-radius:6px}
+.workspace-tools-list .telegram-shortcut{margin:0;padding:0}
+.workspace-tools-list .telegram-shortcut p{font-size:11px;line-height:1.5;padding:5px 10px}
+.workspace-tools-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:20px;padding-top:12px;border-top:1px solid #334139;color:#8eaaa0;font-size:11px}
+.session-workspace .repository-toolbar{align-items:center;flex-wrap:nowrap;padding:5px 12px;gap:10px;min-height:40px}
+.session-workspace .repository-toolbar .root-select{min-width:0;flex:0 1 220px;max-width:220px}
+.session-workspace .repository-toolbar .root-select select{min-width:0;max-width:165px;padding-block:5px;min-height:28px}
+.session-workspace .repository-toolbar .branch-control{flex:0 1 280px;max-width:280px;min-width:120px;flex-direction:row;align-items:center;gap:5px;position:relative}
+.session-workspace .repository-toolbar .branch-picker{flex:1;min-width:0}
+.session-workspace .repository-toolbar .branch-picker select{min-height:28px;padding-block:5px}
+.session-workspace .repository-toolbar>.button{min-height:28px;padding-block:5px}
+.branch-blocked-details{position:relative;flex-shrink:0}
+.branch-blocked-details>summary,.repository-details>summary{display:grid;place-items:center;list-style:none;cursor:pointer;width:28px;height:28px;border-radius:5px;color:#a2b5b0;font-size:18px}
+.branch-blocked-details>summary{font-size:15px;color:#c8af7a}
+.branch-blocked-details>summary::-webkit-details-marker,.repository-details>summary::-webkit-details-marker{display:none}
+.branch-blocked-details[open]>summary,.repository-details[open]>summary{background:#293930}
+.branch-blocked-details[open]>.branch-blocked{position:absolute;right:0;top:calc(100% + 6px);width:min(310px,70vw);max-width:none;padding:12px;margin:0;z-index:15;border:1px solid #5e543c;border-radius:6px;background:#20251f;box-shadow:0 8px 22px #0005;font-size:11px;line-height:1.6}
+.repository-details{position:relative;margin-left:auto;flex-shrink:0}
+.repository-details-popover{position:absolute;right:0;top:calc(100% + 6px);z-index:14;display:flex;align-items:center;flex-wrap:wrap;gap:12px;width:min(420px,75vw);padding:12px;border:1px solid #3d4d43;border-radius:6px;background:#18231f;box-shadow:0 8px 22px #0005}
+.repository-details-popover .repository-path{display:block;white-space:normal;overflow-wrap:anywhere;font:11px/1.6 ui-monospace,monospace;flex-basis:100%;order:-1;color:#a6bcae}
+.repository-details-popover .repository-change-count{font-size:11px}
+.repository-details-popover>.icon-button{margin-left:auto}
+.activity-dense-toolbar{min-height:30px;flex-basis:30px}
+.activity-dense-toolbar>.activity-compact-row{min-height:30px;padding:3px 12px;gap:8px}
+.activity-dense-toolbar .activity-compact-copy{display:flex;align-items:center;gap:10px}
+.activity-dense-toolbar .activity-compact-copy strong{font-size:11px;line-height:16px}
+.activity-dense-toolbar .activity-compact-copy small{font-size:10px;line-height:16px;max-width:40%;color:#9eafb9}
+.activity-cli-status{font-size:10px;color:#a6b7ae;padding-right:10px;border-right:1px solid #34433b;white-space:nowrap}
+.activity-dense-toolbar .activity-compact-count{font-size:10px;padding:1px 5px}
+.terminal-layout>.terminal-caption-hidden{display:none}
+@media(min-width:741px) and (max-width:1150px){.session-workspace .breadcrumb,.header-session-summary .overview-inline-stat:not(button){display:none}.session-workspace .repository-toolbar .root-select>span,.session-workspace .repository-toolbar .branch-picker>span{display:none}.session-workspace .header-actions{gap:8px}.session-workspace .repository-toolbar .root-select{flex-basis:150px}.session-workspace .repository-toolbar .root-select select{max-width:140px}.session-workspace .repository-toolbar .branch-control{flex-basis:180px}.header-session-summary{gap:4px}}
+@media(max-width:740px){.header-session-summary{display:none}.session-workspace .panel-tabs,.session-workspace .panel-tabs>button:not(.stop-button){height:44px;min-height:44px}.session-workspace .repository-toolbar{flex-wrap:wrap;min-height:44px;padding:6px 10px}.session-workspace .repository-toolbar.mobile-collapsed{display:none}.workspace-tools-trigger{min-height:44px;font-size:13px}.workspace-tools-list>.archived-projects-trigger,.workspace-tools-list .telegram-shortcut>button{min-height:44px}.session-workspace .repository-toolbar .root-select,.session-workspace .repository-toolbar .branch-control{max-width:none;flex:1 1 160px}.session-workspace .repository-toolbar .root-select select{max-width:none;min-height:44px}.session-workspace .repository-toolbar .branch-picker select{min-height:44px}.repository-details>summary,.branch-blocked-details>summary{min-width:44px;min-height:44px}}
+.activity-dense-toolbar .activity-compact-copy strong{min-width:0}
+@media(min-width:741px){.native-mobile-client .session-workspace .panel-tabs,.native-mobile-client .session-workspace .panel-tabs>button:not(.stop-button){min-height:44px;height:44px}.native-mobile-client .session-workspace .repository-toolbar select,.native-mobile-client .session-workspace .repository-toolbar>.button,.native-mobile-client .session-workspace .stop-button,.native-mobile-client .repository-details>summary,.native-mobile-client .branch-blocked-details>summary{min-height:44px}.native-mobile-client .activity-dense-toolbar,.native-mobile-client .activity-dense-toolbar>.activity-compact-row{min-height:44px;flex-basis:44px}}
+@media(min-width:741px) and (max-width:950px){.header-session-summary,.session-workspace .header-actions>.connection{display:none}}
+@media(max-width:740px){.session-workspace .repository-toolbar .branch-control{flex-wrap:wrap}.repository-toolbar .branch-blocked-details[open],.repository-toolbar .repository-details[open]{flex:1 1 100%}.repository-toolbar .branch-blocked-details[open]>.branch-blocked,.repository-toolbar .repository-details-popover{position:static;width:100%;max-width:none}.repository-toolbar .repository-details[open]{margin-left:0}.repository-details-popover .repository-path{display:block}}

@@ -1,0 +1,13 @@
+/* Reserve a text-free gutter around the arrow, including narrow branch names.
+   Native selection, keyboard handling and accessible names are preserved. */
+:root body select:not([multiple]):not([size]){
+  appearance:none;
+  -webkit-appearance:none;
+  padding-right:36px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%239ab1b9' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position:right 12px center;
+  background-repeat:no-repeat;
+  background-size:12px 8px;
+  text-overflow:ellipsis;
+}
+@media(forced-colors:active){:root body select:not([multiple]):not([size]){appearance:auto;-webkit-appearance:auto;background-image:none;padding-right:12px}}

@@ -1,0 +1,2 @@
+.modal label.phone-background-toggle { display:flex; flex-direction:row; align-items:flex-start; gap:10px; line-height:1.5; }
+.phone-background-toggle input { width:16px; min-width:16px; height:16px; padding:0; margin:2px 0 0; accent-color:var(--green); }
