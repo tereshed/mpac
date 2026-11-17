@@ -30,6 +30,18 @@ test('desktop controlling viewers retain their own layout on older hosts', async
   await applyTerminalOutput({data_base64:'YQ=='},{cols:120,rows:40,resize(){assert.fail()},write(data,done){calls.push(Buffer.from(data).toString());done()}},false)
   assert.deepEqual(calls,['a'])
 })
+test('a chunk can contain both retained bytes and new terminal queries', async () => {
+  const retained = Buffer.from('история\r\n\x1b[6n')
+  const live = Buffer.from('\x1b]11;?\x07')
+  const writes = []
+  const sink = {
+    cols: 120, rows: 40,
+    resize() { assert.fail('desktop size must stay local') },
+    write(data, done, replay) { writes.push({ bytes: Buffer.from(data), replay }); done() },
+  }
+  await applyTerminalOutput({ data_base64: Buffer.concat([retained, live]).toString('base64') }, sink, false, live.length)
+  assert.deepEqual(writes, [{ bytes: retained, replay: true }, { bytes: live, replay: false }])
+})
 test('read view joins soft wraps without joining source lines or losing spaces and Unicode', () => {
   const rows=[['Привет ',false],['мир 👋',true],['  const x = 1',false],['next',false]]
   const buffer={length:rows.length,getLine(i){return rows[i]&&{isWrapped:rows[i][1],translateToString(){return rows[i][0]}}}}

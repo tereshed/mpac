@@ -630,15 +630,14 @@ async fn insert_batch(
                 let main=app.root(&meta.project_id,&meta.root_id)?;
                 let main_path=Path::new(&main.path);
                 live.verify_root(&meta.root_id,main_path)?;
+                let storage=crate::attachments::storage_root(&app.store.data_dir()?,main_path)?;
                 if let Some(path)=&batch.attachment_path{
-                    let relative=Path::new(path).strip_prefix(main_path).context("Файл пакета вышел за пределы папки сессии")?;
-                    let relative=relative.to_str().context("Недопустимый путь файла пакета")?;
-                    ensure!(mpac_workspace::read_text(main_path,relative)?==batch.text,"Файл пакета изменён; повторная вставка отменена");
+                    ensure!(crate::attachments::read_review(&storage,main_path,&meta.id,Path::new(path))?==batch.text,"Файл пакета изменён; повторная вставка отменена");
                     return Ok(path.clone())
                 }
                 let (count,bytes)=app.store.attachment_totals(&meta.id)?;
                 ensure!(count<crate::attachments::MAX_SESSION_FILES&&bytes.checked_add(batch.text.len() as u64).is_some_and(|n|n<=crate::attachments::MAX_SESSION_BYTES),"Лимит вложений сессии: 50 файлов и 100 MiB");
-                let pending=crate::attachments::prepare(main_path,&meta.id,live.working_root_identity()?,&format!("review-{}.md",batch.id),batch.text.as_bytes())?;
+                let pending=crate::attachments::prepare(&storage,&meta.id,&format!("review-{}.md",batch.id),batch.text.as_bytes())?;
                 pending.verify_path()?;live.verify_root(&meta.root_id,main_path)?;live.check_upload_active()?;
                 app.store.record_attachment(meta,&pending.attachment)?;
                 let attachment=pending.commit();

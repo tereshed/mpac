@@ -194,9 +194,12 @@ def main():
             request(f"/api/sessions/{sid}/attachments", attachment_body, auth=False, expected=401)
             request(f"/api/sessions/{sid}/attachments", attachment_body, origin="https://untrusted.example", expected=403)
             request(f"/api/sessions/{sid}/attachments", {**attachment_body, "name": "../escape.txt"}, expected=400)
+            status_before_upload = subprocess.check_output(["git", "status", "--porcelain"], cwd=first["path"])
             attached = request(f"/api/sessions/{sid}/attachments", attachment_body)
             attached_path = Path(attached["path"])
-            assert attached_path.is_relative_to(Path(first["path"]) / ".mpac-attachments")
+            assert attached_path.is_relative_to(data.resolve() / "attachments")
+            assert not (Path(first["path"]) / ".mpac-attachments").exists()
+            assert subprocess.check_output(["git", "status", "--porcelain"], cwd=first["path"]) == status_before_upload
             assert attached_path.read_bytes() == base64.b64decode(attachment_body["data_base64"])
             assert attached["size"] == len(attached_path.read_bytes())
             assert current()["status"] == "needs_attention", "An upload must never submit CLI input"

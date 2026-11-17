@@ -153,7 +153,8 @@ while True:
             inserted = api(f"/review-batches/{batch['id']}/insert", {})
             assert inserted["status"] == "prepared"
             packet_path = Path(inserted["attachment_path"])
-            assert packet_path.is_relative_to(Path(first["path"]) / ".mpac-attachments")
+            assert packet_path.is_relative_to(data.resolve() / "attachments")
+            assert not (Path(first["path"]) / ".mpac-attachments").exists()
             assert packet_path.read_text() == batch["text"]
             wait_for(lambda: received(session), "packet path draft received")
             before_input = received(session)

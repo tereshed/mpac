@@ -4,7 +4,7 @@ interface Output { data_base64: string; geometry?: TerminalSize; resizes?: Termi
 interface Sink {
   cols: number; rows: number;
   resize(cols: number, rows: number): void;
-  write(bytes: Uint8Array, done: () => void): void;
+  write(bytes: Uint8Array, done: () => void, replay: boolean): void;
 }
 function validSize(value: unknown): value is TerminalSize {
   const size = value as TerminalSize | undefined
@@ -15,7 +15,7 @@ function validSize(value: unknown): value is TerminalSize {
 /** Replay bytes at their original PTY dimensions. A narrow viewer must never
  * reinterpret absolute cursor positions at its own width, or resize the agent.
  * Validate the complete frame before applying any part of it. */
-export async function applyTerminalOutput(output: Output, sink: Sink, followGeometry: boolean): Promise<boolean> {
+export async function applyTerminalOutput(output: Output, sink: Sink, followGeometry: boolean, liveBytes = Infinity): Promise<boolean> {
   const bytes = Uint8Array.from(atob(output.data_base64), c => c.charCodeAt(0))
   if (followGeometry && output.geometry === undefined) return false
   const resizes = followGeometry ? output.resizes ?? [] : []
@@ -28,8 +28,14 @@ export async function applyTerminalOutput(output: Output, sink: Sink, followGeom
     }
     if (sink.cols !== output.geometry.cols || sink.rows !== output.geometry.rows) sink.resize(output.geometry.cols, output.geometry.rows)
   }
+  const replayEnd = Math.max(0, bytes.length - liveBytes)
   const write = async (start: number, end: number) => {
-    if (end > start) await new Promise<void>(resolve => sink.write(bytes.subarray(start, end), resolve))
+    if (start < replayEnd && start < end) {
+      const boundary = Math.min(end, replayEnd)
+      await new Promise<void>(resolve => sink.write(bytes.subarray(start, boundary), resolve, true))
+      start = boundary
+    }
+    if (end > start) await new Promise<void>(resolve => sink.write(bytes.subarray(start, end), resolve, false))
   }
   let offset = 0
   for (const mark of resizes) {

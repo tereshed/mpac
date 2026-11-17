@@ -14,6 +14,7 @@ pub mod directories;
 pub mod environment;
 pub mod launch_defaults;
 pub mod model;
+mod project_tools;
 pub mod pty;
 pub mod review_comments;
 pub mod review_routes;

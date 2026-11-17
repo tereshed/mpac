@@ -401,6 +401,10 @@ export default {
     "en": "Mark as viewed",
     "es": "Marcar como visto"
   },
+  "Просмотрено": {
+    "en": "Viewed",
+    "es": "Visto"
+  },
   "Очередь ввода заполнена (64 KiB). Последний ввод не отправлен; проверьте текст в терминале перед продолжением.": {
     "en": "The input queue is full (64 KiB). The latest input was not sent; check the terminal before continuing.",
     "es": "La cola de entrada está llena (64 KiB). No se envió la última entrada; revisa el terminal antes de continuar."

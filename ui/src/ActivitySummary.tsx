@@ -10,7 +10,7 @@ import './activity.css'
 
 const jobLabels: Record<ActivityJob['status'], string> = { running: 'Выполнялась на момент наблюдения', scheduled: 'Запланирована', completed: 'Завершена', failed: 'Ошибка', unknown: 'Статус неизвестен' }
 
-export default function ActivitySummary({ session, compact = false, dense = false, expanded = false, tools, onToggleExpanded, onMarkRead, onBackgroundOpenChange }: { session: Session; compact?: boolean; dense?: boolean; expanded?: boolean; tools?: ReactNode; onToggleExpanded?: () => void; onMarkRead?: (expectedRevision: number) => Promise<void>; onBackgroundOpenChange?: (open: boolean) => void }) {
+export default function ActivitySummary({ session, compact = false, dense = false, expanded = false, quickMarkRead = false, tools, onToggleExpanded, onMarkRead, onBackgroundOpenChange }: { session: Session; compact?: boolean; dense?: boolean; expanded?: boolean; quickMarkRead?: boolean; tools?: ReactNode; onToggleExpanded?: () => void; onMarkRead?: (expectedRevision: number) => Promise<void>; onBackgroundOpenChange?: (open: boolean) => void }) {
   const [showBackground, setShowBackground] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -39,7 +39,7 @@ export default function ActivitySummary({ session, compact = false, dense = fals
       <i className="activity-state-dot" aria-hidden="true" />{dense && <span className="activity-cli-status" title={`CLI: ${statusLabel(session.status)}`}>{statusLabel(session.status)}{session.exit_code != null ? ` · exit ${session.exit_code}` : ''}</span>}<span className="activity-compact-copy"><strong>{compactLabel}</strong>{toolLabel && <small>{toolLabel}</small>}</span>
       {unreadResult(session) && <span className="activity-compact-unread" title={t('Новый результат')} aria-hidden="true">●</span>}
       {session.activity?.background.jobs.length ? <span className="activity-compact-count" title={inventory}>◷ {session.activity.background.jobs.length}</span> : null}<span className="activity-compact-chevron" aria-hidden="true">›</span>
-    </button>{tools}{compact && onToggleExpanded && <button type="button" className="activity-compact-expand" aria-pressed={expanded} aria-label={expanded ? t('Вернуть панели') : t('Развернуть терминал')} onClick={onToggleExpanded}>{expanded ? '⤡' : '⤢'}</button>}</div> : <div className="activity-summary" aria-label={t("Состояние агента")}>
+    </button>{quickMarkRead && unreadResult(session) && !passive && onMarkRead && <button type="button" className="activity-quick-read" title={t('Отметить просмотренным')} aria-label={t('Отметить просмотренным')} onClick={() => void markRead()} disabled={busy}>{busy ? '…' : compact ? '✓' : t('Отметить просмотренным')}</button>}{tools}{compact && onToggleExpanded && <button type="button" className="activity-compact-expand" aria-pressed={expanded} aria-label={expanded ? t('Вернуть панели') : t('Развернуть терминал')} onClick={onToggleExpanded}>{expanded ? '⤡' : '⤢'}</button>}</div> : <div className="activity-summary" aria-label={t("Состояние агента")}>
       <span className={`activity-state activity-${summary.tone}`} title={summary.detail}><i className="activity-state-dot" />{summary.label}</span>
       {session.activity?.attention?.certainty === 'requested' && <small>{t("Проверьте терминал")}</small>}
       {session.activity?.phase === 'working' && summary.tone !== 'working' && <small>{t("Агент выполняет задачу")}</small>}

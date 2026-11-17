@@ -4,6 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { activitySummary, attentionPriority, backgroundSummary, backgroundInventoryLabel, passiveBackground, toolCallLabel, unreadResult, activityTime } from '../src/activity.ts'
 import { needsAttention, orderedSessions } from '../src/session-management.ts'
+import { desktopSessionStatus } from '../src/desktop-session-status.ts'
 
 function activity(overrides = {}) {
   return { adapter: 'claude', capabilities: { foreground: true, questions: true, approval: true, results: true, background: true }, phase: 'unknown', attention: null, result: { revision: 0, read_revision: 0, at: null }, background: { coverage: 'awaiting_snapshot', observed_at: null, jobs: [] }, updated_at: null, source: 'native', ...overrides }
@@ -18,6 +19,14 @@ test('a live CLI alone never establishes model work or confirmed idle', () => {
   assert.equal(activitySummary(session('unknown', activity())).tone, 'unknown')
   assert.equal(activitySummary(session('work', activity({ phase: 'working' }))).tone, 'working')
   assert.equal(activitySummary(session('idle', activity({ phase: 'idle' }))).tone, 'idle')
+})
+test('the desktop rail distinguishes a live CLI from reported work and a new reply', () => {
+  const live = session('claude', undefined)
+  assert.deepEqual(desktopSessionStatus(live), { id: 'unknown', label: 'CLI запущен' })
+  assert.deepEqual(desktopSessionStatus({ ...live, activity: activity({ phase: 'working' }) }), { id: 'working', label: 'Работает' })
+  assert.equal(desktopSessionStatus({ ...live, activity: activity({
+    phase: 'idle', result: { revision: 1, read_revision: 0, at: 101 },
+  }) }).id, 'result')
 })
 test('default legacy metadata preserves coarse demo attention without inventing a question', () => {
   const legacy = session('demo', activity({ adapter: 'legacy', capabilities: { foreground: false, questions: false, approval: false, results: false, background: false } }), 'needs_attention')

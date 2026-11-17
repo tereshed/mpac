@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path as RoutePath, Query, Request, State},
@@ -123,6 +123,12 @@ pub fn router(app: Arc<App>, ui_dir: &Path) -> Router {
         .route("/projects/{id}/update", post(update_project))
         .route("/projects/{id}/delete", post(delete_project))
         .route("/projects/{id}/restore", post(restore_project))
+        .route(
+            "/projects/{id}/tools",
+            get(project_tools).post(save_project_tools),
+        )
+        .route("/projects/{id}/tools/apply", post(apply_project_tools))
+        .route("/projects/{id}/tools/export", post(export_project_tools))
         .route("/projects/{id}/files", get(files))
         .route("/projects/{id}/file", get(file))
         .route("/projects/{id}/review", get(review))
@@ -130,6 +136,10 @@ pub fn router(app: Arc<App>, ui_dir: &Path) -> Router {
         .route("/projects/{id}/branch", post(switch_branch))
         .route("/sessions", post(start_session))
         .route("/launch-defaults", post(save_launch_defaults))
+        .route(
+            "/launch-defaults/environment",
+            post(save_launch_environment_default),
+        )
         .route("/sessions/{id}/output", get(output))
         .route("/sessions/{id}/answer", get(agent_answer))
         .route("/sessions/{id}/input", post(input))
@@ -267,6 +277,7 @@ async fn state(State(app): State<Arc<App>>) -> ApiResult {
         let (projects, archived_projects) = app.store.project_catalog()?;
         let archived_sessions=app.store.archived_sessions()?;
         let launch_defaults=app.store.launch_defaults()?;
+        let launch_environment_defaults = app.store.launch_environment_defaults()?;
         let visible: HashSet<_> = projects.iter().map(|project| project.id.as_str()).collect();
         let live = app.live.lock().unwrap();
         let mut sessions: Vec<_> = app.store.visible_sessions()?.into_iter().map(|s| live.get(&s.id).map_or(s.clone(), |v| v.meta())).collect();
@@ -276,7 +287,7 @@ async fn state(State(app): State<Arc<App>>) -> ApiResult {
             if current.active() && visible.contains(current.project_id.as_str()) && !app.store.session_archived(&current.id)? && !sessions.iter().any(|s| s.id == current.id) { sessions.push(current); }
         }
         sessions.sort_by_key(|s| std::cmp::Reverse(s.started_at));
-        Ok(json!({"projects":projects,"archived_projects":archived_projects,"sessions":sessions,"archived_sessions":archived_sessions,"launch_defaults":launch_defaults,"agents":model::agents(),"terminal_launches":model::terminal_launchers(),"prototype":true,"host":"local","capabilities":{"pty":"macOS/Linux","semantic_agent_status":true,"session_activity":true,"agent_answers":true,"terminal_stream":true,"session_env_files":true,"terminal_replay":"bounded_raw_tail","mobile_remote":false,"project_management":true,"session_management":true,"session_rename":true,"git_branches":true,"launch_defaults":true,"auto_session_titles":true,"git_commits":true,"review_comments":true,"session_attachments":cfg!(unix),"archived_sessions_limit":200,"attachment_file_bytes":crate::attachments::MAX_FILE_BYTES,"attachment_session_bytes":crate::attachments::MAX_SESSION_BYTES,"attachment_session_files":crate::attachments::MAX_SESSION_FILES}}))
+        Ok(json!({"projects":projects,"archived_projects":archived_projects,"sessions":sessions,"archived_sessions":archived_sessions,"launch_defaults":launch_defaults,"launch_environment_defaults":launch_environment_defaults,"agents":model::agents(),"terminal_launches":model::terminal_launchers(),"prototype":true,"host":"local","capabilities":{"pty":"macOS/Linux","semantic_agent_status":true,"session_activity":true,"agent_answers":true,"terminal_stream":true,"session_env_files":true,"project_tools":cfg!(unix),"terminal_replay":"bounded_raw_tail","mobile_remote":false,"project_management":true,"session_management":true,"session_rename":true,"git_branches":true,"launch_defaults":true,"auto_session_titles":true,"git_commits":true,"review_comments":true,"session_attachments":cfg!(unix),"archived_sessions_limit":200,"attachment_file_bytes":crate::attachments::MAX_FILE_BYTES,"attachment_session_bytes":crate::attachments::MAX_SESSION_BYTES,"attachment_session_files":crate::attachments::MAX_SESSION_FILES}}))
     }).await
 }
 
@@ -455,6 +466,63 @@ async fn restore_project(
     .await
 }
 
+async fn project_tools(State(app): State<Arc<App>>, RoutePath(id): RoutePath<String>) -> ApiResult {
+    work(move || Ok(serde_json::to_value(app.store.project_tools(&id)?)?)).await
+}
+
+async fn save_project_tools(
+    State(app): State<Arc<App>>,
+    RoutePath(id): RoutePath<String>,
+    Json(request): Json<crate::project_tools::Save>,
+) -> ApiResult {
+    work(move || {
+        let _launch = app.launch_lock.lock().unwrap();
+        request.profile.validate()?;
+        Ok(serde_json::to_value(app.store.save_project_tools(
+            &id,
+            request.expected_revision,
+            request.profile,
+        )?)?)
+    })
+    .await
+}
+
+async fn export_project_tools(
+    State(app): State<Arc<App>>,
+    RoutePath(id): RoutePath<String>,
+    Json(harness): Json<crate::project_tools::Harness>,
+) -> ApiResult {
+    work(move || {
+        Ok(serde_json::to_value(
+            app.store.project_tools(&id)?.profile.export(harness)?,
+        )?)
+    })
+    .await
+}
+
+async fn apply_project_tools(
+    State(app): State<Arc<App>>,
+    RoutePath(id): RoutePath<String>,
+    Json(request): Json<crate::project_tools::Apply>,
+) -> ApiResult {
+    work(move || {
+        let _launch = app.launch_lock.lock().unwrap();
+        let root = app.root(&id, &request.root_id)?;
+        let saved = app.store.project_tools(&id)?;
+        ensure!(
+            saved.revision == request.expected_revision,
+            "Project tools changed in another window"
+        );
+        let previous = app.store.project_tools_exports(&id, &root.id)?;
+        let files = crate::project_tools::native_exports(&saved.profile)?;
+        crate::project_tools::apply(Path::new(&root.path), previous, files.clone())?;
+        app.store
+            .save_project_tools_exports(&id, &root.id, &files)?;
+        Ok(json!({ "files": files.keys().collect::<Vec<_>>() }))
+    })
+    .await
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StartSession {
@@ -478,6 +546,32 @@ async fn save_launch_defaults(
         let _launch = app.launch_lock.lock().unwrap();
         Ok(serde_json::to_value(
             app.store.save_launch_defaults(&request)?,
+        )?)
+    })
+    .await
+}
+
+async fn save_launch_environment_default(
+    State(app): State<Arc<App>>,
+    Json(request): Json<crate::launch_defaults::SaveEnvironmentDefault>,
+) -> ApiResult {
+    work(move || {
+        let _launch = app.launch_lock.lock().unwrap();
+        ensure!(
+            request.agent_id != "demo"
+                && model::agents()
+                    .iter()
+                    .chain(model::terminal_launchers().iter())
+                    .any(|agent| agent.id == request.agent_id),
+            "Профиль агента недоступен"
+        );
+        if let Some(path) = &request.env_file {
+            let root = app.root(&request.project_id, &request.root_id)?;
+            crate::environment::Environment::load(path, Path::new(&root.path))?;
+        }
+        app.store.save_launch_environment_default(&request)?;
+        Ok(serde_json::to_value(
+            app.store.launch_environment_defaults()?,
         )?)
     })
     .await
@@ -938,13 +1032,9 @@ async fn upload_attachment(
             {
                 bail!("Лимит сессии: 50 вложений и 100 MiB загруженных файлов");
             }
-            let pending = crate::attachments::prepare(
-                Path::new(&root.path),
-                &id,
-                live.working_root_identity()?,
-                &name,
-                &bytes,
-            )?;
+            let storage =
+                crate::attachments::storage_root(&app.store.data_dir()?, Path::new(&root.path))?;
+            let pending = crate::attachments::prepare(&storage, &id, &name, &bytes)?;
             live.verify_root(&meta.root_id, Path::new(&root.path))?;
             pending.verify_path()?;
             live.check_upload_active()?;

@@ -24,6 +24,7 @@ pub(crate) struct CodexRuntime {
     retired_turns: VecDeque<String>,
     completed_turn: Option<String>,
     stop_candidate: Option<String>,
+    stop_has_answer: bool,
     pending_questions: Vec<String>,
     ambiguous_question: bool,
     active_tools: Vec<(String, String)>,
@@ -70,6 +71,10 @@ impl CodexRuntime {
 }
 
 impl ActivityState {
+    pub(crate) fn codex_stop_has_answer(&self) -> bool {
+        self.codex.stop_candidate.is_some() && self.codex.stop_has_answer
+    }
+
     pub(crate) fn accepted_codex_stop(&self, value: &Value) -> bool {
         let turn = value.get("turn_id").and_then(Value::as_str);
         turn.is_some()
@@ -381,6 +386,7 @@ impl ActivityState {
             // OSC9 completion can confirm a successful result in this adapter.
             "Stop" => {
                 self.codex.stop_candidate = Some(turn.to_owned());
+                self.codex.stop_has_answer = crate::activity_hooks::stop_answer(value).is_some();
                 self.clear_activity_tools(now)
             }
             _ => unreachable!("event allowlist handled above"),

@@ -1,9 +1,9 @@
 //! Copies only explicitly uploaded bytes. No process input, Enter, ignore-file
 //! edits or existing-file overwrite is performed. Session lifetime quotas are
 //! enforced separately by the SQLite transaction before this file is committed.
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +11,84 @@ pub const MAX_FILE_BYTES: usize = 10 * 1024 * 1024;
 pub const MAX_SESSION_BYTES: u64 = 100 * 1024 * 1024;
 pub const MAX_SESSION_FILES: u64 = 50;
 pub const MAX_JSON_BYTES: usize = 14 * 1024 * 1024;
+const DIRECTORY: &str = "attachments";
+const LEGACY_DIRECTORY: &str = ".mpac-attachments";
+
+pub fn storage_root(data: &Path, project: &Path) -> Result<PathBuf> {
+    storage_root_with(data, project, platform_storage_base)
+}
+
+fn storage_root_with(
+    data: &Path,
+    project: &Path,
+    platform_base: impl FnOnce() -> Option<PathBuf>,
+) -> Result<PathBuf> {
+    let in_project_or_checkout = |path: &Path| {
+        path.starts_with(project)
+            || path
+                .ancestors()
+                .any(|parent| parent.join(".git").symlink_metadata().is_ok())
+    };
+    if !in_project_or_checkout(data) {
+        return Ok(data.to_owned());
+    }
+    // Development and custom launches can put the database inside a checkout.
+    // In that case use the same platform data locations as desktop settings.
+    let base = platform_base()
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| anyhow::anyhow!("Не удалось найти папку данных MPAC вне проекта"))?;
+    let root = base.join("MPAC");
+    let parent = root
+        .ancestors()
+        .find(|path| path.exists())
+        .context("Папка данных MPAC недоступна")?;
+    let root = parent.canonicalize()?.join(root.strip_prefix(parent)?);
+    ensure!(
+        !in_project_or_checkout(&root),
+        "Не удалось найти папку данных MPAC вне проекта"
+    );
+    std::fs::create_dir_all(&root)?;
+    let root = root.canonicalize()?;
+    ensure!(
+        !in_project_or_checkout(&root),
+        "Не удалось найти папку данных MPAC вне проекта"
+    );
+    Ok(root)
+}
+
+fn platform_storage_base() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var_os("HOME").map(|home| PathBuf::from(home).join("Library/Application Support"))
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
+            })
+    }
+}
+
+pub fn read_review(root: &Path, project: &Path, session: &str, path: &Path) -> Result<String> {
+    for (base, directory) in [(root, DIRECTORY), (project, LEGACY_DIRECTORY)] {
+        if let Ok(relative) = path.strip_prefix(base)
+            && relative.starts_with(Path::new(directory).join(session))
+        {
+            let relative = relative
+                .to_str()
+                .context("Недопустимый путь файла пакета")?;
+            return mpac_workspace::read_text(base, relative);
+        }
+    }
+    anyhow::bail!("Файл пакета вышел за пределы папки сессии")
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Attachment {
@@ -103,6 +181,8 @@ mod unix {
 
     pub struct PendingAttachment {
         pub attachment: Attachment,
+        root: PathBuf,
+        root_identity: (u64, u64),
         created_dirs: Vec<CreatedDirectory>,
         file: Option<CreatedFile>,
         committed: bool,
@@ -154,6 +234,11 @@ mod unix {
 
     impl PendingAttachment {
         pub fn verify_path(&self) -> Result<()> {
+            let root = Dir::from_std_file(open_root(&self.root)?);
+            ensure!(
+                identity(&root.dir_metadata()?) == self.root_identity,
+                "Путь вложения изменился во время загрузки"
+            );
             for directory in &self.created_dirs {
                 ensure!(
                     directory
@@ -208,14 +293,21 @@ mod unix {
         }
     }
 
+    fn open_root(root: &Path) -> Result<std::fs::File> {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+            .open(root)
+            .context("Папка вложений недоступна или заменена ссылкой")
+    }
+
     pub fn prepare(
         root: &Path,
         session_id: &str,
-        root_identity: (u64, u64),
         name: &str,
         bytes: &[u8],
     ) -> Result<PendingAttachment> {
-        use std::os::unix::fs::OpenOptionsExt as _;
         ensure!(bytes.len() <= MAX_FILE_BYTES, "Файл превышает лимит 10 MiB");
         ensure!(
             decode_upload(name, "")?.0 == name,
@@ -224,22 +316,10 @@ mod unix {
         let session_id = uuid::Uuid::parse_str(session_id)
             .context("Недопустимая сессия вложения")?
             .to_string();
-        let root_file = std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-            .open(root)
-            .context("Папка сессии недоступна или заменена")?;
-        let root_dir = Dir::from_std_file(root_file);
-        ensure!(
-            identity(&root_dir.dir_metadata()?) == root_identity,
-            "Папка заменена после запуска CLI"
-        );
+        let root_dir = Dir::from_std_file(open_root(root)?);
+        let root_identity = identity(&root_dir.dir_metadata()?);
         let id = uuid::Uuid::new_v4().to_string();
-        let path = root
-            .join(".mpac-attachments")
-            .join(&session_id)
-            .join(&id)
-            .join(name);
+        let path = root.join(DIRECTORY).join(&session_id).join(&id).join(name);
         let attachment = Attachment {
             id: id.clone(),
             name: name.into(),
@@ -252,16 +332,13 @@ mod unix {
         };
         let mut pending = PendingAttachment {
             attachment,
+            root: root.to_owned(),
+            root_identity,
             created_dirs: vec![],
             file: None,
             committed: false,
         };
-        let attachments = directory(
-            &root_dir,
-            ".mpac-attachments",
-            false,
-            &mut pending.created_dirs,
-        )?;
+        let attachments = directory(&root_dir, DIRECTORY, false, &mut pending.created_dirs)?;
         let session = directory(&attachments, &session_id, false, &mut pending.created_dirs)?;
         let upload = directory(&session, &id, true, &mut pending.created_dirs)?;
         let mut options = OpenOptions::new();
@@ -308,7 +385,6 @@ impl PendingAttachment {
 pub fn prepare(
     _root: &Path,
     _session: &str,
-    _identity: (u64, u64),
     _name: &str,
     _bytes: &[u8],
 ) -> Result<PendingAttachment> {
@@ -347,20 +423,13 @@ mod tests {
     #[cfg(unix)]
     mod filesystem {
         use super::*;
-        use std::{
-            os::unix::fs::{MetadataExt, symlink},
-            path::PathBuf,
-        };
+        use std::{os::unix::fs::symlink, path::PathBuf};
         struct Temp(PathBuf);
         impl Temp {
             fn new() -> Self {
                 let p = std::env::temp_dir().join(format!("mpac-upload-{}", uuid::Uuid::new_v4()));
                 std::fs::create_dir(&p).unwrap();
                 Self(p.canonicalize().unwrap())
-            }
-            fn identity(&self) -> (u64, u64) {
-                let m = self.0.metadata().unwrap();
-                (m.dev(), m.ino())
             }
         }
         impl Drop for Temp {
@@ -370,21 +439,73 @@ mod tests {
         }
 
         #[test]
+        fn checkout_ancestor_is_respected_even_when_project_is_a_subdirectory() {
+            let checkout = Temp::new();
+            let outside = Temp::new();
+            let project = checkout.0.join("subproject");
+            let data = checkout.0.join(".mpac");
+            for path in [checkout.0.join(".git"), project.clone(), data.clone()] {
+                std::fs::create_dir(path).unwrap();
+            }
+            let alias = outside.0.join("alias");
+            symlink(&checkout.0, &alias).unwrap();
+            assert!(storage_root_with(&data, &project, || Some(alias)).is_err());
+            assert!(!checkout.0.join("MPAC").exists());
+            let root = storage_root_with(&data, &project, || Some(outside.0.clone())).unwrap();
+            assert_eq!(root, outside.0.join("MPAC"));
+            let other_project = Temp::new();
+            assert_eq!(
+                storage_root_with(&data, &other_project.0, || Some(outside.0.clone())).unwrap(),
+                root
+            );
+            assert_eq!(
+                storage_root_with(&root, &project, || panic!("already outside")).unwrap(),
+                root
+            );
+        }
+
+        #[test]
+        fn review_retry_accepts_both_locations_for_its_own_session() {
+            let data = Temp::new();
+            let project = Temp::new();
+            let session = uuid::Uuid::new_v4().to_string();
+            let other = uuid::Uuid::new_v4().to_string();
+            let old = project
+                .0
+                .join(LEGACY_DIRECTORY)
+                .join(&session)
+                .join("upload");
+            std::fs::create_dir_all(&old).unwrap();
+            let legacy_file = old.join("review.md");
+            std::fs::write(&legacy_file, b"legacy packet").unwrap();
+            let new_file = prepare(&data.0, &session, "review.md", b"new packet")
+                .unwrap()
+                .commit();
+            for (path, text) in [
+                (&legacy_file, "legacy packet"),
+                (&PathBuf::from(new_file.path), "new packet"),
+            ] {
+                assert_eq!(
+                    read_review(&data.0, &project.0, &session, path).unwrap(),
+                    text
+                );
+                assert!(read_review(&data.0, &project.0, &other, path).is_err());
+            }
+        }
+
+        #[test]
         fn only_explicit_prepare_writes_and_commit_preserves_exact_bytes() {
             let root = Temp::new();
             assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 0);
             let session = uuid::Uuid::new_v4().to_string();
             let bytes = b"\x89PNG\r\n\x1a\nselected bytes";
-            let pending =
-                prepare(&root.0, &session, root.identity(), "скриншот.png", bytes).unwrap();
+            let pending = prepare(&root.0, &session, "скриншот.png", bytes).unwrap();
             pending.verify_path().unwrap();
             let meta = pending.commit();
             assert_eq!(std::fs::read(&meta.path).unwrap(), bytes);
             assert_eq!(meta.mime_type, "image/png");
             assert_eq!(meta.size, bytes.len() as u64);
-            assert!(
-                Path::new(&meta.path).starts_with(root.0.join(".mpac-attachments").join(session))
-            );
+            assert!(Path::new(&meta.path).starts_with(root.0.join(DIRECTORY).join(session)));
             assert!(!root.0.join(".gitignore").exists());
         }
 
@@ -394,7 +515,6 @@ mod tests {
             let pending = prepare(
                 &root.0,
                 &uuid::Uuid::new_v4().to_string(),
-                root.identity(),
                 "note.md",
                 b"partial",
             )
@@ -402,11 +522,10 @@ mod tests {
             let path = pending.attachment.path.clone();
             drop(pending);
             assert!(!Path::new(&path).exists());
-            assert!(!root.0.join(".mpac-attachments").exists());
+            assert!(!root.0.join(DIRECTORY).exists());
             let pending = prepare(
                 &root.0,
                 &uuid::Uuid::new_v4().to_string(),
-                root.identity(),
                 "note.md",
                 b"partial",
             )
@@ -424,18 +543,17 @@ mod tests {
             let root = Temp::new();
             let outside = Temp::new();
             let session = uuid::Uuid::new_v4().to_string();
-            symlink(&outside.0, root.0.join(".mpac-attachments")).unwrap();
-            assert!(prepare(&root.0, &session, root.identity(), "note", b"no").is_err());
+            symlink(&outside.0, root.0.join(DIRECTORY)).unwrap();
+            assert!(prepare(&root.0, &session, "note", b"no").is_err());
             assert_eq!(std::fs::read_dir(&outside.0).unwrap().count(), 0);
-            std::fs::remove_file(root.0.join(".mpac-attachments")).unwrap();
-            std::fs::create_dir(root.0.join(".mpac-attachments")).unwrap();
-            symlink(&outside.0, root.0.join(".mpac-attachments").join(&session)).unwrap();
-            assert!(prepare(&root.0, &session, root.identity(), "note", b"no").is_err());
+            std::fs::remove_file(root.0.join(DIRECTORY)).unwrap();
+            std::fs::create_dir(root.0.join(DIRECTORY)).unwrap();
+            symlink(&outside.0, root.0.join(DIRECTORY).join(&session)).unwrap();
+            assert!(prepare(&root.0, &session, "note", b"no").is_err());
             assert_eq!(std::fs::read_dir(&outside.0).unwrap().count(), 0);
             let link = root.0.join("root-link");
             symlink(&outside.0, &link).unwrap();
-            assert!(prepare(&link, &session, outside.identity(), "note", b"no").is_err());
-            assert!(prepare(&root.0, &session, (0, 0), "note", b"no").is_err());
+            assert!(prepare(&link, &session, "note", b"no").is_err());
         }
 
         #[test]
@@ -444,7 +562,6 @@ mod tests {
             let pending = prepare(
                 &root.0,
                 &uuid::Uuid::new_v4().to_string(),
-                root.identity(),
                 "note",
                 b"original",
             )

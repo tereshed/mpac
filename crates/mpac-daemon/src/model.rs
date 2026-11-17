@@ -224,6 +224,15 @@ pub fn agents() -> Vec<Agent> {
             supports_network_control: false,
         },
         Agent {
+            id: "agy",
+            label: "Google Antigravity",
+            available: cfg!(unix) && executable("agy").is_some(),
+            billing: "Авторизация оригинального CLI",
+            access_modes: crate::access::modes("agy"),
+            supports_extra_roots: false,
+            supports_network_control: false,
+        },
+        Agent {
             id: "zai",
             label: "Z.ai через Claude Code",
             available: false,

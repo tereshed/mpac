@@ -372,11 +372,20 @@ impl ActivityState {
             }
             "PermissionRequest" if main && self.capabilities.approval => {
                 let tool = read_tool(payload, false)?;
+                if self.runtime.turn_result_recorded
+                    && !self.tools.iter().any(|active| active.name == tool.name)
+                {
+                    return Ok(false);
+                }
                 let candidates: Vec<_> = self
                     .runtime
                     .tools
                     .iter()
-                    .filter(|t| t.name == tool.name && t.signature == tool.signature)
+                    .filter(|t| {
+                        t.name == tool.name
+                            && t.signature == tool.signature
+                            && !self.tool_was_finished(&t.id)
+                    })
                     .collect();
                 let id = if candidates.len() == 1 {
                     Some(candidates[0].id.clone())
@@ -403,9 +412,17 @@ impl ActivityState {
             }
             "PostToolUse" | "PostToolUseFailure" | "PermissionDenied" if main => {
                 let tool = read_tool(payload, true)?;
+                let belongs_to_current_work = self.tools.iter().any(|active| active.id == tool.id)
+                    || self
+                        .runtime
+                        .pending
+                        .iter()
+                        .any(|p| p.tool.as_deref() == Some(&tool.id));
                 self.observe_tool_end(&tool.id, now);
                 self.resolve_tool(&tool);
-                if self.capabilities.foreground {
+                if self.capabilities.foreground
+                    && (!self.runtime.turn_result_recorded || belongs_to_current_work)
+                {
                     self.phase = ActivityPhase::Working;
                 }
                 if event == "PostToolUse" && self.capabilities.background {
@@ -413,6 +430,17 @@ impl ActivityState {
                 }
             }
             "Stop" if main => {
+                let continued =
+                    payload.get("stop_hook_active").and_then(Value::as_bool) == Some(true);
+                if !self.runtime.turn_result_recorded || continued {
+                    // A root response closes ordinary tool approvals, including
+                    // notifications that have no tool ID or matching close event.
+                    // Structured questions and plan review resolve separately.
+                    self.runtime.pending.retain(|p| {
+                        p.attention.kind != AttentionKind::Permission || p.name == "ExitPlanMode"
+                    });
+                    self.refresh_attention();
+                }
                 if self.capabilities.results {
                     self.record_claude_turn_result(now);
                 }
@@ -642,6 +670,12 @@ impl ActivityState {
                 pending.attention.certainty = AttentionCertainty::Confirmed;
                 self.refresh_attention();
             } else {
+                if kind == AttentionKind::Permission
+                    && self.runtime.turn_result_recorded
+                    && self.tools.is_empty()
+                {
+                    return Ok(());
+                }
                 self.add_interaction(
                     None,
                     "notification",
@@ -1193,6 +1227,72 @@ mod tests {
             9,
         )
         .unwrap();
+        assert!(s.attention.is_none());
+    }
+
+    #[test]
+    fn claude_response_retires_unresolved_tool_permissions() {
+        let mut s = state();
+        submit(&mut s, "prompt-a", 2);
+        let mut notification = event("Notification", "prompt-a");
+        notification["notification_type"] = json!("permission_prompt");
+        s.apply_claude(&notification, 3).unwrap();
+        let attention = s.attention.as_ref().unwrap();
+        assert_eq!(attention.kind, AttentionKind::Permission);
+        assert_eq!(attention.certainty, AttentionCertainty::Confirmed);
+
+        s.apply_claude(&event("Stop", "prompt-a"), 4).unwrap();
+        assert!(s.attention.is_none());
+        assert_eq!(s.result.revision, 1);
+        s.apply_claude(&notification, 5).unwrap();
+        s.apply_claude(&tool("PermissionRequest", "prompt-a", "old", "Bash"), 6)
+            .unwrap();
+        s.apply_claude(&tool("PostToolUse", "prompt-a", "old", "Bash"), 7)
+            .unwrap();
+        assert!(s.attention.is_none());
+        assert_eq!(s.phase, ActivityPhase::Unknown);
+        assert_eq!(s.result.revision, 1);
+    }
+
+    #[test]
+    fn a_continued_claude_turn_can_request_a_new_permission() {
+        let mut s = state();
+        submit(&mut s, "prompt-a", 2);
+        s.apply_claude(&event("Stop", "prompt-a"), 3).unwrap();
+        s.apply_claude(&tool("PreToolUse", "prompt-a", "new", "Bash"), 4)
+            .unwrap();
+        s.apply_claude(&tool("PermissionRequest", "prompt-a", "new", "Bash"), 5)
+            .unwrap();
+        assert_eq!(
+            s.attention.as_ref().unwrap().kind,
+            AttentionKind::Permission
+        );
+        s.apply_claude(&event("Stop", "prompt-a"), 6).unwrap();
+        assert!(
+            s.attention.is_some(),
+            "duplicate Stop must not remove a newer permission"
+        );
+        s.apply_claude(&tool("PostToolUse", "prompt-a", "new", "Bash"), 7)
+            .unwrap();
+        assert!(s.attention.is_none());
+    }
+
+    #[test]
+    fn claude_response_does_not_retire_plan_review() {
+        let mut s = state();
+        submit(&mut s, "prompt-a", 2);
+        s.apply_claude(&tool("PreToolUse", "prompt-a", "plan", "ExitPlanMode"), 3)
+            .unwrap();
+        s.apply_claude(&event("Stop", "prompt-a"), 4).unwrap();
+        let mut notification = event("Notification", "prompt-a");
+        notification["notification_type"] = json!("permission_prompt");
+        s.apply_claude(&notification, 5).unwrap();
+        assert_eq!(
+            s.attention.as_ref().unwrap().certainty,
+            AttentionCertainty::Confirmed
+        );
+        s.apply_claude(&tool("PostToolUse", "prompt-a", "plan", "ExitPlanMode"), 6)
+            .unwrap();
         assert!(s.attention.is_none());
     }
 

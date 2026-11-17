@@ -18,5 +18,7 @@
 .activity-compact-background{color:#c0acf0}.activity-compact-error{color:#f3a0a4}.activity-compact-unread{font-size:8px;color:#9bcdf5;flex-shrink:0}.activity-compact-count{flex-shrink:0;white-space:nowrap;padding:2px 6px;border:1px solid #384354;border-radius:5px;font-size:11px;color:#b9c7d4}.activity-compact-chevron{font-size:18px;line-height:20px;color:#9dafbc;flex-shrink:0}
 .activity-compact-toolbar{display:flex;flex:0 0 44px;min-height:44px;background:#101821;border-bottom:1px solid #293644}
 .activity-compact-toolbar>.activity-compact-row{flex:1;min-width:0;border-bottom:0}
+.activity-quick-read{flex-shrink:0;min-width:40px;padding:4px 9px;border-left:1px solid #293644;color:#b9d8a6;font-size:11px;white-space:nowrap}
+.activity-quick-read:hover:not(:disabled){background:#22342c}
 .activity-compact-expand{flex:0 0 44px;width:44px;min-height:44px;border:0;border-left:1px solid #293644;background:#17232b;color:#b9cbd0;font-size:22px;cursor:pointer}
 .activity-compact-expand:focus-visible{outline:2px solid #c4e6ab;outline-offset:-3px}

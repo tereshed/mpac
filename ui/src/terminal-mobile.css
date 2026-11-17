@@ -26,6 +26,7 @@
 .terminal-answer-header>div{flex:1;min-width:0;padding:5px 10px;display:flex;flex-direction:column;justify-content:center}
 .terminal-answer-header strong{font-size:12px}
 .terminal-answer-header time{font-size:10px;color:#9eafb9}
+.terminal-answer-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 7px;font-size:10px;color:#b9d8a6}
 .terminal-answer>pre{font-size:14px}
 .terminal-compose-actions>.terminal-paste-only{background:#20322a;border-color:#405647;color:#c1d2c3}
 @media(max-width:380px){.terminal-mobile-controls{gap:4px;padding:2px 5px}.terminal-mobile-controls>button{font-size:11px;padding:5px 6px}.terminal-mobile-controls>.terminal-mobile-send{min-width:82px}}

@@ -1,6 +1,10 @@
 import type { Messages } from '../i18n-types.ts'
 
 export default {
+  'Запомнить для агента и папки': { en: 'Remember for this agent and folder', es: 'Recordar para este agente y carpeta' },
+  'Убрать ENV по умолчанию': { en: 'Remove default ENV file', es: 'Quitar el archivo ENV predeterminado' },
+  'ENV по умолчанию: {p0}': { en: 'Default ENV file: {p0}', es: 'Archivo ENV predeterminado: {p0}' },
+  'ENV по умолчанию уже изменён в другом окне. Проверьте сохранённый путь и повторите действие': { en: 'The default ENV file changed in another window. Check the saved path and try again.', es: 'El archivo ENV predeterminado cambió en otra ventana. Comprueba la ruta guardada e inténtalo de nuevo.' },
   'Переменная SHELL в ENV должна указывать на исполняемый файл абсолютным путём': { en: 'SHELL in the ENV file must point to an executable using an absolute path', es: 'SHELL debe indicar un archivo ejecutable mediante una ruta absoluta' },
   'Для навигации нужен абсолютный путь до 4096 байт': { en: 'Navigation requires an absolute path up to 4096 bytes', es: 'La navegación requiere una ruta absoluta de hasta 4096 bytes' },
   "Файл": {"en": "File", "es": "Archivo"},

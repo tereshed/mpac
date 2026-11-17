@@ -115,7 +115,7 @@ pub fn modes(agent: &str) -> Vec<ModeDescriptor> {
         "codex" => &[Inherit, ReadOnly, WorkspaceWrite, FullAccess],
         "claude" => &[Inherit, Manual, Plan, AcceptEdits, FullAccess],
         "hermes" => &[Inherit, FullAccess],
-        "demo" | "shell" | "command" => &[Inherit],
+        "agy" | "demo" | "shell" | "command" => &[Inherit],
         _ => &[],
     };
     modes

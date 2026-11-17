@@ -83,7 +83,7 @@ fn parse_version(text: &str) -> Option<Version> {
 }
 
 fn version(path: &Path) -> Option<Version> {
-    type Cache = HashMap<(PathBuf, u64, Option<SystemTime>), Option<Version>>;
+    type Cache = HashMap<(PathBuf, u64, Option<SystemTime>), Version>;
     static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
     let metadata = path.metadata().ok()?;
     let key = (
@@ -93,7 +93,7 @@ fn version(path: &Path) -> Option<Version> {
     );
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some(found) = cache.lock().unwrap().get(&key) {
-        return *found;
+        return Some(*found);
     }
     let handle = tokio::runtime::Handle::try_current().ok()?;
     let result = handle.block_on(async {
@@ -114,7 +114,7 @@ fn version(path: &Path) -> Option<Version> {
             discard.ok()?;
             (bytes.len() <= 4096).then_some(bytes)
         };
-        let captured = tokio::time::timeout(Duration::from_secs(2), work)
+        let captured = tokio::time::timeout(Duration::from_secs(5), work)
             .await
             .ok()
             .flatten();
@@ -124,12 +124,15 @@ fn version(path: &Path) -> Option<Version> {
         owner.stop().await.ok()?;
         parse_version(std::str::from_utf8(&captured?).ok()?)
     });
+    // A timeout or failed probe is not evidence of an unsupported CLI.
+    // Retry on the next launch, even if the executable has not changed.
+    let result = result?;
     let mut cache = cache.lock().unwrap();
     if cache.len() >= 64 {
         cache.clear();
     }
     cache.insert(key, result);
-    result
+    Some(result)
 }
 
 fn private_directory(path: &Path) -> Result<()> {
@@ -523,6 +526,30 @@ mod tests {
             found == Some(Version(2, 1, 318)),
             "owned metadata probe failed"
         );
+    }
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_transient_version_probe_failure_does_not_disable_future_launches() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = std::env::temp_dir().join(format!("mpac-version-{}", model::id()));
+        fs::create_dir(&folder).unwrap();
+        let path = folder.join("cli");
+        fs::write(
+            &path,
+            "#!/bin/sh\n[ -f \"$0.ready\" ] && printf '2.1.325 (Claude Code)\\n'\n",
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        let (first, second) = tokio::task::spawn_blocking(move || {
+            let first = version(&path);
+            fs::write(path.with_extension("ready"), "").unwrap();
+            let second = version(&path);
+            fs::remove_dir_all(folder).unwrap();
+            (first, second)
+        })
+        .await
+        .unwrap();
+        assert!(first.is_none() && second == Some(Version(2, 1, 325)));
     }
     #[test]
     fn versions_and_secrets_are_strict() {

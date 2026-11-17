@@ -1,0 +1,10 @@
+.project-tools { display: grid; gap: 14px; }
+.project-tools fieldset { display: grid; gap: 10px; border: 0; margin: 0; padding: 0; min-width: 0; }
+.project-tools-add, .project-tools-apply, .project-tools-export { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px 12px; }
+.project-tools-apply > p, .project-tools-preview { grid-column: 1 / -1; }
+.project-tools label { display: grid; gap: 6px; font-size: 13px; min-width: 0; }
+.project-tools-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #111922; }
+.project-tools-card-head { display: flex; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
+.project-tools-preview summary { cursor: pointer; overflow-wrap: anywhere; padding: 6px 0; }
+.project-tools-preview pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; margin: 0; background: #0c1016; }
+.project-tools .muted { font-size: 12px; line-height: 1.45; }

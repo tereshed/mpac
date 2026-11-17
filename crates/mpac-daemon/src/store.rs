@@ -5,8 +5,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::{
     attachments::{Attachment, MAX_SESSION_BYTES, MAX_SESSION_FILES},
-    launch_defaults::{LaunchDefaults, SaveDefaults},
+    launch_defaults::{EnvironmentDefault, LaunchDefaults, SaveDefaults, SaveEnvironmentDefault},
     model::{Project, Session},
+    project_tools::{Profile as ToolsProfile, Saved as SavedTools},
     review_comments::{BatchStatus, Delivery, ReviewBatch, ReviewComment},
 };
 
@@ -16,6 +17,7 @@ pub struct Store(Mutex<Connection>);
 pub(crate) struct AgentAnswer {
     text: String,
     saved_at: u64,
+    revision: Option<u64>,
 }
 
 fn sql_unsigned(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
@@ -42,6 +44,31 @@ fn write_defaults(connection: &Connection, defaults: &LaunchDefaults) -> Result<
     let defaults = defaults.clone().without_acknowledgements();
     connection.execute("INSERT INTO launch_defaults(id,payload) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload", [serde_json::to_string(&defaults)?])?;
     Ok(())
+}
+
+fn read_project_tools(conn: &Connection, project: &str) -> Result<SavedTools> {
+    ensure!(
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND archived=0)",
+            [project],
+            |row| row.get::<_, bool>(0)
+        )?,
+        "Проект не найден"
+    );
+    let row: Option<(u64, String)> = conn
+        .query_row(
+            "SELECT revision,profile FROM project_tools WHERE project_id=?1",
+            [project],
+            |row| Ok((sql_unsigned(row, 0)?, row.get(1)?)),
+        )
+        .optional()?;
+    match row {
+        Some((revision, json)) => Ok(SavedTools {
+            revision,
+            profile: serde_json::from_str(&json)?,
+        }),
+        None => Ok(SavedTools::default()),
+    }
 }
 
 impl Store {
@@ -77,7 +104,25 @@ impl Store {
         }
         connection.execute_batch("CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY,session_id TEXT NOT NULL,payload TEXT NOT NULL,size INTEGER NOT NULL CHECK(size>=0)); CREATE INDEX IF NOT EXISTS attachments_session ON attachments(session_id);")?;
         connection.execute_batch("CREATE TABLE IF NOT EXISTS launch_defaults(id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL);")?;
-        connection.execute_batch("CREATE TABLE IF NOT EXISTS agent_answers(session_id TEXT PRIMARY KEY, text TEXT NOT NULL, saved_at INTEGER NOT NULL);")?;
+        connection.execute_batch(
+            "CREATE TABLE IF NOT EXISTS project_tools(project_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, profile TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS project_tools_exports(project_id TEXT NOT NULL, root_id TEXT NOT NULL, files TEXT NOT NULL, PRIMARY KEY(project_id, root_id));",
+        )?;
+        connection.execute_batch(
+            "CREATE TABLE IF NOT EXISTS launch_environment_defaults(
+                project_id TEXT NOT NULL, root_id TEXT NOT NULL, agent_id TEXT NOT NULL,
+                env_file TEXT NOT NULL, PRIMARY KEY(project_id, root_id, agent_id)
+            );",
+        )?;
+        connection.execute_batch("CREATE TABLE IF NOT EXISTS agent_answers(session_id TEXT PRIMARY KEY, text TEXT NOT NULL, saved_at INTEGER NOT NULL, revision INTEGER);")?;
+        let has_answer_revision: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('agent_answers') WHERE name='revision')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_answer_revision {
+            connection.execute("ALTER TABLE agent_answers ADD COLUMN revision INTEGER", [])?;
+        }
         connection.execute_batch("CREATE TABLE IF NOT EXISTS review_comments(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,root_id TEXT NOT NULL,payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS review_comments_project ON review_comments(project_id,root_id); CREATE TABLE IF NOT EXISTS review_batches(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,request_id TEXT NOT NULL UNIQUE,payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS review_batches_project ON review_batches(project_id); CREATE TABLE IF NOT EXISTS review_deliveries(comment_id TEXT NOT NULL,revision INTEGER NOT NULL,session_id TEXT NOT NULL,batch_id TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(comment_id,revision,session_id)); CREATE TABLE IF NOT EXISTS commit_receipts(request_id TEXT PRIMARY KEY,payload TEXT NOT NULL);")?;
         // A process may have died after enqueueing PTY bytes but before recording
         // success. Never replay such a draft automatically after restart.
@@ -87,6 +132,133 @@ impl Store {
 
     pub fn launch_defaults(&self) -> Result<LaunchDefaults> {
         read_defaults(&self.0.lock().unwrap())
+    }
+
+    pub(crate) fn project_tools(&self, project: &str) -> Result<SavedTools> {
+        read_project_tools(&self.0.lock().unwrap(), project)
+    }
+
+    pub(crate) fn save_project_tools(
+        &self,
+        project: &str,
+        expected: u64,
+        profile: ToolsProfile,
+    ) -> Result<SavedTools> {
+        let mut connection = self.0.lock().unwrap();
+        let tx = connection.transaction()?;
+        let saved = read_project_tools(&tx, project)?;
+        ensure!(
+            saved.revision == expected,
+            "Project tools changed in another window"
+        );
+        let revision = saved
+            .revision
+            .checked_add(1)
+            .context("Project tools revision limit")?;
+        tx.execute(
+            "INSERT INTO project_tools(project_id,revision,profile) VALUES(?1,?2,?3)
+             ON CONFLICT(project_id) DO UPDATE SET revision=excluded.revision,profile=excluded.profile",
+            params![project, i64::try_from(revision)?, serde_json::to_string(&profile)?],
+        )?;
+        tx.commit()?;
+        Ok(SavedTools { revision, profile })
+    }
+
+    pub(crate) fn project_tools_exports(
+        &self,
+        project: &str,
+        root: &str,
+    ) -> Result<std::collections::BTreeMap<String, String>> {
+        let conn = self.0.lock().unwrap();
+        let files: Option<String> = conn
+            .query_row(
+                "SELECT files FROM project_tools_exports WHERE project_id=?1 AND root_id=?2",
+                [project, root],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(files
+            .map(|json| serde_json::from_str(&json))
+            .transpose()?
+            .unwrap_or_default())
+    }
+
+    pub(crate) fn save_project_tools_exports(
+        &self,
+        project: &str,
+        root: &str,
+        files: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
+        self.0.lock().unwrap().execute(
+            "INSERT INTO project_tools_exports(project_id,root_id,files) VALUES(?1,?2,?3)
+             ON CONFLICT(project_id,root_id) DO UPDATE SET files=excluded.files",
+            params![project, root, serde_json::to_string(files)?],
+        )?;
+        Ok(())
+    }
+
+    pub fn launch_environment_defaults(&self) -> Result<Vec<EnvironmentDefault>> {
+        let connection = self.0.lock().unwrap();
+        let mut statement = connection.prepare(
+            "SELECT e.project_id,e.root_id,e.agent_id,e.env_file
+             FROM launch_environment_defaults e JOIN projects p ON p.id=e.project_id
+             WHERE p.archived=0",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(EnvironmentDefault {
+                project_id: row.get(0)?,
+                root_id: row.get(1)?,
+                agent_id: row.get(2)?,
+                env_file: row.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub(crate) fn save_launch_environment_default(
+        &self,
+        request: &SaveEnvironmentDefault,
+    ) -> Result<()> {
+        let mut connection = self.0.lock().unwrap();
+        let tx = connection.transaction()?;
+        let payload: String = tx
+            .query_row(
+                "SELECT payload FROM projects WHERE id=?1 AND archived=0",
+                [&request.project_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .context("Проект не найден")?;
+        let project: Project = serde_json::from_str(&payload)?;
+        ensure!(
+            project.roots.iter().any(|root| root.id == request.root_id),
+            "Папка не принадлежит проекту"
+        );
+        let scope = [&request.project_id, &request.root_id, &request.agent_id];
+        let current: Option<String> = tx.query_row(
+            "SELECT env_file FROM launch_environment_defaults WHERE project_id=?1 AND root_id=?2 AND agent_id=?3",
+            scope,
+            |row| row.get(0),
+        ).optional()?;
+        ensure!(
+            current == request.expected_env_file || current == request.env_file,
+            "ENV по умолчанию уже изменён в другом окне. Проверьте сохранённый путь и повторите действие"
+        );
+        if let Some(path) = &request.env_file {
+            tx.execute(
+                "INSERT INTO launch_environment_defaults(project_id,root_id,agent_id,env_file)
+                 VALUES (?1,?2,?3,?4) ON CONFLICT(project_id,root_id,agent_id)
+                 DO UPDATE SET env_file=excluded.env_file",
+                params![request.project_id, request.root_id, request.agent_id, path],
+            )?;
+        } else {
+            tx.execute(
+                "DELETE FROM launch_environment_defaults WHERE project_id=?1 AND root_id=?2 AND agent_id=?3",
+                scope,
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn review_comments(&self, project: &str) -> Result<Vec<ReviewComment>> {
@@ -599,6 +771,22 @@ impl Store {
             "UPDATE projects SET payload=?2 WHERE id=?1 AND archived=0",
             params![updated.id, serde_json::to_string(updated)?],
         )?;
+        for root in &current.roots {
+            if !updated
+                .roots
+                .iter()
+                .any(|remaining| remaining.id == root.id && remaining.path == root.path)
+            {
+                transaction.execute(
+                    "DELETE FROM launch_environment_defaults WHERE project_id=?1 AND root_id=?2",
+                    params![updated.id, root.id],
+                )?;
+                transaction.execute(
+                    "DELETE FROM project_tools_exports WHERE project_id=?1 AND root_id=?2",
+                    params![updated.id, root.id],
+                )?;
+            }
+        }
         let mut defaults = read_defaults(&transaction)?;
         if defaults.prune_roots(updated) {
             defaults.revision = defaults
@@ -676,6 +864,7 @@ impl Store {
         session: &Session,
         text: &str,
         saved_at: u64,
+        revision: Option<u64>,
         activity_changed: bool,
     ) -> Result<()> {
         let mut connection = self.0.lock().unwrap();
@@ -687,8 +876,23 @@ impl Store {
             )?;
         }
         tx.execute(
-            "INSERT INTO agent_answers(session_id,text,saved_at) VALUES(?1,?2,?3) ON CONFLICT(session_id) DO UPDATE SET text=excluded.text,saved_at=excluded.saved_at",
-            params![session.id, text, i64::try_from(saved_at)?],
+            "INSERT INTO agent_answers(session_id,text,saved_at,revision) VALUES(?1,?2,?3,?4) ON CONFLICT(session_id) DO UPDATE SET text=excluded.text,saved_at=excluded.saved_at,revision=excluded.revision",
+            params![session.id, text, i64::try_from(saved_at)?, revision.map(i64::try_from).transpose()?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn complete_agent_answer(&self, session: &Session) -> Result<()> {
+        let mut connection = self.0.lock().unwrap();
+        let tx = connection.transaction()?;
+        tx.execute(
+            "UPDATE sessions SET payload=?2 WHERE id=?1",
+            params![session.id, serde_json::to_string(session)?],
+        )?;
+        tx.execute(
+            "UPDATE agent_answers SET revision=?2 WHERE session_id=?1 AND revision IS NULL",
+            params![session.id, i64::try_from(session.activity.result.revision)?],
         )?;
         tx.commit()?;
         Ok(())
@@ -705,12 +909,17 @@ impl Store {
         ensure!(visible, "Сессия недоступна");
         Ok(connection
             .query_row(
-                "SELECT text,saved_at FROM agent_answers WHERE session_id=?1",
+                "SELECT text,saved_at,revision FROM agent_answers WHERE session_id=?1",
                 [id],
                 |row| {
                     Ok(AgentAnswer {
                         text: row.get(0)?,
                         saved_at: sql_unsigned(row, 1)?,
+                        revision: if row.get::<_, Option<i64>>(2)?.is_some() {
+                            Some(sql_unsigned(row, 2)?)
+                        } else {
+                            None
+                        },
                     })
                 },
             )

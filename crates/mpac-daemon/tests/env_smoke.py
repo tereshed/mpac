@@ -39,7 +39,7 @@ def main():
   for provider in ['claude','codex','hermes']:
    p=bins/provider;p.write_text('#!'+sys.executable+'\n'+FAKE);p.chmod(0o700)
   own_bin=workspace/'daemon-bin';own_bin.mkdir();own_binary=own_bin/'mpac-daemon';shutil.copy2(binary,own_binary)
-  ambient_fixture = 'AMBIENT_SECRET_' + '900'
+  ambient_fixture='AMBIENT_SECRET_'+str(900)
   env={**os.environ,'PATH':'bin'+os.pathsep+os.environ.get('PATH',''),'ANTHROPIC_AUTH_TOKEN':ambient_fixture,'ANTHROPIC_API_KEY':ambient_fixture,'ANTHROPIC_BASE_URL':'https://ambient.invalid','OPENAI_API_KEY':ambient_fixture,'CODEX_API_KEY':ambient_fixture,'OPENAI_BASE_URL':'https://ambient.invalid'}
   with logfile.open('wb') as log:
    proc=subprocess.Popen([str(own_binary),'--port','0','--data-dir',str(data),'--ui-dir',str(workspace)],stdin=subprocess.DEVNULL,stdout=log,stderr=log,env=env,start_new_session=True,cwd=workspace)
@@ -62,6 +62,16 @@ def main():
     file=root/'any variables.profile';file.write_text('export CHECK_MODE=overlay\nANTHROPIC_AUTH_TOKEN=ENV_FILE_SECRET_901\nANTHROPIC_BASE_URL=https://glm.example.invalid\nOPENAI_API_KEY=ENV_FILE_SECRET_902\nOPENAI_BASE_URL=https://openai.example.invalid\nOPENROUTER_API_KEY=ENV_FILE_SECRET_903\nMODEL_LABEL="GLM Español 文"\nPATH=/not-used-for-resolution\nLITERAL=\'$(touch '+str(marker)+')\'\n')
     listing=api('/environment-files?path='+urllib.parse.quote(str(root)));check('picker finds arbitrary filename and returns no contents',any(x['name']==file.name for x in listing['entries']) and 'ENV_FILE_SECRET' not in json.dumps(listing))
     outside=workspace/'outside settings 文.env';outside.write_text(file.read_text())
+    def remember(project_id,folder,provider,path,previous=None,expected=200):
+     return api('/launch-defaults/environment',{'project_id':project_id,'root_id':folder,'agent_id':provider,'env_file':path,'expected_env_file':previous},expected)
+    saved={'project_id':project['id'],'root_id':root_id,'agent_id':'claude','env_file':file.name}
+    check('save only the ENV path for the selected project, folder and launcher',remember(project['id'],root_id,'claude',file.name)==[saved])
+    check('the saved path is included in workspace state',api('/state')['launch_environment_defaults']==[saved])
+    remember(project['id'],root_id,'claude',str(outside),expected=400)
+    remember(project['id'],root_id,'claude',None,expected=400)
+    check('stale updates and removals leave the saved path intact',api('/state')['launch_environment_defaults']==[saved])
+    check('remove the saved ENV path',remember(project['id'],root_id,'claude',None,file.name)==[])
+    remember(project['id'],root_id,'claude',file.name)
     def start(provider,selected=False,full=False,env_path=None):
      observations=set(root.glob('env-observation-*.json'));body={'project_id':project['id'],'root_id':root_id,'agent':provider,'title':'Owned ENV '+provider}
      selected_file=file if env_path is None else env_path

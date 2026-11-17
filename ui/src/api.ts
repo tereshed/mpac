@@ -23,6 +23,12 @@ export interface LaunchDefaults {
   agents: Record<string, SessionAccess>;
   projects: Record<string, ProjectLaunchDefaults>;
 }
+export interface LaunchEnvironmentDefault {
+  project_id: string;
+  root_id: string;
+  agent_id: string;
+  env_file: string;
+}
 export interface AccessModeOption { id: AccessMode; label: string; description: string; unrestricted: boolean }
 export interface Session {
   activity?: ActivityState;
@@ -48,6 +54,7 @@ export interface State {
   projects: Project[]; archived_projects?: Project[];
   sessions: Session[]; archived_sessions?: Session[]; agents: Agent[]; terminal_launches?: Agent[]; prototype: boolean;
   launch_defaults?: LaunchDefaults;
+  launch_environment_defaults?: LaunchEnvironmentDefault[];
   capabilities?: { project_management?: boolean; [capability: string]: unknown };
 }
 export interface FileEntry { path: string; is_dir: boolean; size: number }

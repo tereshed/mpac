@@ -127,6 +127,8 @@ while True:
         elif command == "permission":
             event("PreToolUse", tool_name="Bash", tool_use_id="permission-1", tool_input={"command":"fixture-only"})
             event("PermissionRequest", tool_name="Bash", tool_input={"command":"fixture-only"})
+        elif command == "permission-notice":
+            event("Notification", notification_type="permission_prompt", message="Fixture approval")
         elif command == "resolve":
             event("PostToolUse", tool_name="Bash", tool_use_id="permission-1", tool_input={"command":"fixture-only"}, tool_response={"text":private})
         elif command == "stop":
@@ -276,6 +278,20 @@ def main():
                 assert activity["background"]["coverage"] == "snapshot" and activity["background"]["jobs"] == []
                 checks.append("background missing vs explicit empty; native running job and CronCreate nextFireAt")
 
+                command("claude", "work")
+                activity = command("claude", "permission-notice")
+                assert activity["attention"]["kind"] == "permission"
+                assert activity["attention"]["certainty"] == "confirmed"
+                activity = command("claude", "stop")
+                assert activity["attention"] is None and activity["phase"] == "idle"
+                revision = activity["result"]["revision"]
+                activity = command("claude", "permission-notice")
+                assert activity["attention"] is None and activity["result"]["revision"] == revision
+                command("claude", "work")
+                assert command("claude", "permission")["attention"]["kind"] == "permission"
+                assert command("claude", "resolve")["attention"] is None
+                checks.append("Claude finished response clears old approvals; delayed notice ignored; new approval still works")
+
                 assert command("codex", "osc")["result"]["revision"] == 0
                 assert command("codex", "work")["phase"] == "working"
                 activity = command("codex", "permission")
@@ -289,6 +305,10 @@ def main():
                 for provider, session_id in sessions.items():
                     saved = request("/sessions/" + session_id + "/answer")["answer"]
                     assert saved["text"] == PRIVATE and saved["saved_at"] > 0, provider
+                    if provider == "codex":
+                        assert saved["revision"] == current(provider)["activity"]["result"]["revision"] == 1
+                    else:
+                        assert 0 < saved["revision"] <= current(provider)["activity"]["result"]["revision"]
                 checks.append("latest assistant text delivered by Claude HTTP hook and Codex command hook")
 
                 public = json.dumps(request("/state"))

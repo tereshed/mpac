@@ -12,12 +12,14 @@ import errorsProjects from './locales/errors-projects.ts'
 import errorsReview from './locales/errors-review.ts'
 import errorsTerminal from './locales/errors-terminal.ts'
 import activityDetails from './locales/activity-details.ts'
+import desktopSessions from './locales/desktop-sessions.ts'
+import projectTools from './locales/project-tools.ts'
 import type { Locale, Messages, MessageValues } from './i18n-types.ts'
 
 export type { Locale, Messages, MessageValues } from './i18n-types.ts'
 export const LOCALE_KEY = 'mpac-locale'
 export const supportedLocales = ['en', 'ru', 'es'] as const
-export const messages: Messages = { ...errorsProjects, ...errorsReview, ...errorsTerminal, ...projects, ...review, ...terminal, ...common, ...activityDetails, ...environment, ...mobile, ...phone, ...touchTerminal, ...shell, ...voice }
+export const messages: Messages = { ...errorsProjects, ...errorsReview, ...errorsTerminal, ...projects, ...review, ...terminal, ...common, ...activityDetails, ...environment, ...mobile, ...phone, ...touchTerminal, ...shell, ...voice, ...desktopSessions, ...projectTools }
 export const isLocale = (value: unknown): value is Locale => supportedLocales.some(locale => locale === value)
 export function storedLocale(): Locale {
   try { const value = globalThis.localStorage?.getItem(LOCALE_KEY); return isLocale(value) ? value : 'en' }

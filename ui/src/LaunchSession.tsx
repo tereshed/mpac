@@ -2,7 +2,7 @@ import { t } from './i18n.ts'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, errorMessage } from './api'
-import type { Agent, LaunchDefaults, Project, Session } from './api'
+import type { Agent, LaunchDefaults, LaunchEnvironmentDefault, Project, Session } from './api'
 import Modal from './Modal'
 import AccessSettings from './AccessSettings'
 import EnvFilePicker from './EnvFilePicker'
@@ -15,6 +15,8 @@ import './launch-defaults.css'
 interface Props {
   token: string; project: Project; agents: Agent[]; rootId: string; defaults?: LaunchDefaults; autoTitleAvailable?: boolean; environmentFilesAvailable?: boolean;
   initialRootId?: string; requiredRootIds?: string[];
+  environmentDefaults?: LaunchEnvironmentDefault[];
+  onEnvironmentDefaultsSaved: (defaults: LaunchEnvironmentDefault[]) => void;
   onClose: () => void; onLaunched: (session: Session) => void;
 }
 
@@ -22,18 +24,22 @@ export default function LaunchSession(props: Props) {
   return <LaunchSessionForm key={props.token + '\0' + props.project.id} {...props} />
 }
 
-function LaunchSessionForm({ token, project, agents, rootId, defaults, autoTitleAvailable = false, environmentFilesAvailable = false, initialRootId, requiredRootIds = [], onClose, onLaunched }: Props) {
+function LaunchSessionForm({ token, project, agents, rootId, defaults, autoTitleAvailable = false, environmentFilesAvailable = false, environmentDefaults, onEnvironmentDefaultsSaved, initialRootId, requiredRootIds = [], onClose, onLaunched }: Props) {
   const [initial] = useState(() => initialLaunchSelection(project, agents, rootId, defaults, initialRootId))
   const [agentId, setAgentId] = useState(initial.agentId)
   const [selectedRoot, setSelectedRoot] = useState(initial.rootId)
   const [title, setTitle] = useState('')
   const [command, setCommand] = useState('')
-  const [environmentEnabled, setEnvironmentEnabled] = useState(false)
-  const [environmentFile, setEnvironmentFile] = useState('')
+  const savedEnvironmentFile = (agent: string, root: string) => environmentDefaults?.find(
+    item => item.project_id === project.id && item.agent_id === agent && item.root_id === root,
+  )?.env_file ?? ''
+  const [environmentFile, setEnvironmentFile] = useState(() => savedEnvironmentFile(initial.agentId, initial.rootId))
+  const [environmentEnabled, setEnvironmentEnabled] = useState(() => !!environmentFile)
   const [pickingEnvironment, setPickingEnvironment] = useState(false)
   const [access, setAccess] = useState(initial.access)
   const [source, setSource] = useState<PresetSource>(initial.source)
-  const [busy, setBusy] = useState(false)
+  const [operation, setOperation] = useState<'launch' | 'environment' | null>(null)
+  const busy = operation !== null
   const [error, setError] = useState('')
   const mounted = useRef(true)
   const pending = useRef(false)
@@ -47,20 +53,47 @@ function LaunchSessionForm({ token, project, agents, rootId, defaults, autoTitle
   const accessValid = !controls.hasCatalog || (!!controls.selected && (!controls.unrestricted || access.acknowledge_full_access))
   const usingEnvironment = agentId !== 'demo' && environmentFilesAvailable && environmentEnabled
   const environmentValid = agentId === 'demo' || !environmentEnabled || (environmentFilesAvailable && environmentFile.length > 0)
+  const savedFile = savedEnvironmentFile(agentId, selectedRoot)
   const applyPreset = (nextAgent: string, nextRoot: string) => {
     const preset = resolveLaunchPreset(agents.find(item => item.id === nextAgent), project, nextRoot, defaults)
     setAccess(preset.access); setSource(preset.source); setError('')
+    const file = savedEnvironmentFile(nextAgent, nextRoot)
+    setEnvironmentFile(file)
+    setEnvironmentEnabled(!!file)
+  }
+  const saveEnvironmentDefault = async (file: string | null) => {
+    if (pending.current || !environmentDefaults || !rootValid || agentId === 'demo') return
+    pending.current = true
+    setOperation('environment')
+    setError('')
+    const abort = new AbortController()
+    request.current = abort
+    try {
+      const saved = await api<LaunchEnvironmentDefault[]>(token, '/launch-defaults/environment', {
+        project_id: project.id, root_id: selectedRoot, agent_id: agentId,
+        env_file: file, expected_env_file: savedFile || null,
+      }, abort.signal)
+      if (!mounted.current || abort.signal.aborted) return
+      onEnvironmentDefaultsSaved(saved)
+      if (file === null && environmentFile === savedFile) setEnvironmentEnabled(false)
+    } catch (failure) {
+      if (mounted.current && !abort.signal.aborted) setError(errorMessage(failure))
+    } finally {
+      pending.current = false
+      if (mounted.current) setOperation(null)
+      if (request.current === abort) request.current = null
+    }
   }
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (pending.current || !agent?.available || !rootValid || !accessValid || !environmentValid || !commandValid) return
-    pending.current = true; setBusy(true); setError('')
+    pending.current = true; setOperation('launch'); setError('')
     const abort = new AbortController(); request.current = abort
     try {
       const session = await api<Session>(token, '/sessions', { project_id: project.id, root_id: selectedRoot, agent: agentId, ...(agentId === 'command' ? { command } : {}), title: title.trim() || undefined, ...(usingEnvironment ? { env_file: environmentFile } : {}), access: accessRequest(agent, project.roots, selectedRoot, access) }, abort.signal)
       if (mounted.current && !abort.signal.aborted) onLaunched(session)
     } catch (failure) { if (mounted.current && !abort.signal.aborted) setError(errorMessage(failure)) }
-    finally { pending.current = false; if (mounted.current) setBusy(false); if (request.current === abort) request.current = null }
+    finally { pending.current = false; if (mounted.current) setOperation(null); if (request.current === abort) request.current = null }
   }
   if (pickingEnvironment) return <EnvFilePicker token={token} initialPath={project.roots.find(root => root.id === selectedRoot)?.path || ''} onClose={() => setPickingEnvironment(false)} onSelect={path => { setEnvironmentFile(path); setEnvironmentEnabled(true); setPickingEnvironment(false); setError('') }} />
   return <Modal title={t("Новая сессия")} subtitle={project.name + t(" · локальный запуск CLI")} onClose={() => { if (!pending.current) onClose() }} busy={busy}><form onSubmit={submit}>
@@ -73,6 +106,14 @@ function LaunchSessionForm({ token, project, agents, rootId, defaults, autoTitle
       <label className="session-environment-toggle"><input type="checkbox" checked={environmentEnabled} disabled={busy || (!environmentFilesAvailable && !environmentEnabled)} onChange={event => { setEnvironmentEnabled(event.target.checked); setError('') }} />{t('Загрузить ENV из файла')}</label>
       {!environmentFilesAvailable && <p className="muted">{t('Загрузка ENV станет доступна после обновления локального сервиса.')}</p>}
       {usingEnvironment && <><label htmlFor="session-env-file">{t('Файл ENV')}</label><div className="session-environment-path"><input id="session-env-file" value={environmentFile} onChange={event => { setEnvironmentFile(event.target.value); setError('') }} placeholder={t("Например, config/agent.env")} maxLength={4096} autoComplete="off" spellCheck={false} disabled={busy} /><button type="button" className="button secondary compact" disabled={busy} onClick={() => setPickingEnvironment(true)}>{t('Выбрать файл…')}</button></div><p>{t('Абсолютный путь или путь от рабочей папки. Поддерживаются KEY=value и export KEY=value.')}</p><p>{t('Переменные действуют только в новой сессии. Содержимое файла не сохраняется в истории и не показывается в интерфейсе.')}</p></>}
+      {environmentFilesAvailable && environmentDefaults && (usingEnvironment || savedFile) && <>
+        {savedFile && <p role="status">{t('ENV по умолчанию: {p0}', { p0: savedFile })}</p>}
+        <div className="session-environment-default-actions">
+          {usingEnvironment && environmentFile !== savedFile && <button type="button" className="button secondary compact" disabled={busy || !rootValid || !environmentValid} onClick={() => void saveEnvironmentDefault(environmentFile)}>{t('Запомнить для агента и папки')}</button>}
+          {savedFile && <button type="button" className="button secondary compact" disabled={busy || !rootValid} onClick={() => void saveEnvironmentDefault(null)}>{t('Убрать ENV по умолчанию')}</button>}
+          {operation === 'environment' && <span role="status">{t('Сохраняем…')}</span>}
+        </div>
+      </>}
     </section>}
     {!terminalLaunch && <><div className="launch-preset-source"><span>{t("Доступ:")}</span><strong>{presetSourceLabel(source)}</strong></div>
     {!!requiredRootIds.length && <p className="launch-auto-title-help">{t("Папки выбранного ревью:")}{' '}{project.roots.filter(root => requiredRootIds.includes(root.id)).map(root => root.name).join(', ')}{t(". Проверьте доступ к ним перед запуском. Пакет замечаний будет подготовлен после выбора новой сессии.")}</p>}
@@ -80,6 +121,6 @@ function LaunchSessionForm({ token, project, agents, rootId, defaults, autoTitle
     <div className="billing-card"><span className="billing-icon">◇</span><div><strong>{terminalLaunch ? t("Системная оболочка") : agentId === 'demo' ? t("Демо без обращений к моделям") : usingEnvironment ? t("Авторизация CLI с ENV-файлом") : t("Авторизация оригинального CLI")}</strong><p>{terminalLaunch ? t(agentId === "shell" ? "Откроется интерактивный терминал в выбранной папке. Агент автоматически не запускается." : "Команда выполняется вашей оболочкой в выбранной папке.") : usingEnvironment ? t("Провайдер, модель и способ оплаты могут быть заданы переменными этого файла.") : agent?.billing ? t(agent.billing) : t("Условия оплаты неизвестны.")}</p>{!terminalLaunch && agentId !== 'demo' && !usingEnvironment && <p>{t("Автоматического переключения на API нет. Возможные доплаты на стороне провайдера не проверены.")}</p>}</div></div>
     {!rootValid && <div className="notice">{t("Набор папок проекта изменился. Выберите рабочую папку повторно.")}</div>}
     {error && <div className="inline-error" role="alert">{t(error)}</div>}
-    <div className="modal-actions"><button type="button" className="button secondary" onClick={onClose} disabled={busy}>{t("Отмена")}</button><button className="button primary" disabled={busy || !agent?.available || !rootValid || !accessValid || !environmentValid || !commandValid}>{busy ? t("Запускаем…") : t("Запустить сессию →")}</button></div>
+    <div className="modal-actions"><button type="button" className="button secondary" onClick={onClose} disabled={busy}>{t("Отмена")}</button><button className="button primary" disabled={busy || !agent?.available || !rootValid || !accessValid || !environmentValid || !commandValid}>{operation === 'launch' ? t("Запускаем…") : t("Запустить сессию →")}</button></div>
   </form></Modal>
 }

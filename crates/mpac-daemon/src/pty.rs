@@ -297,7 +297,7 @@ impl LiveSession {
                     .as_ref()
                     .context("Нет параметров терминала")?,
             ),
-            "claude" | "codex" | "hermes" => {
+            "claude" | "codex" | "hermes" | "agy" => {
                 CommandBuilder::new(executable(&meta.agent).context("CLI не найден в PATH")?)
             }
             _ => bail!("Профиль агента недоступен"),
@@ -495,6 +495,7 @@ impl LiveSession {
                 }
                 let agent = meta.agent.clone();
                 let before_activity = meta.activity.clone();
+                let pending_answer = agent == "codex" && before_activity.codex_stop_has_answer();
                 let effects = activity_parser.push(&bytes[..n], &mut meta.activity, &agent, now());
                 if effects.reply_capability {
                     let _ = capability_input.try_send(crate::auto_title::CAPABILITY_REPLY.to_vec());
@@ -503,7 +504,13 @@ impl LiveSession {
                     && serde_json::to_value(&before_activity).ok()
                         != serde_json::to_value(&meta.activity).ok()
                 {
-                    let _ = reader_store.session(&meta);
+                    if pending_answer
+                        && meta.activity.result.revision > before_activity.result.revision
+                    {
+                        let _ = reader_store.complete_agent_answer(&meta);
+                    } else {
+                        let _ = reader_store.session(&meta);
+                    }
                 }
                 let _ = promote_auto_title(&mut meta, completed, &reader_cwd, &reader_store);
                 if meta.agent == "demo" && meta.active() {
@@ -628,7 +635,11 @@ impl LiveSession {
             _ => false,
         });
         if let Some(text) = answer {
-            store.save_agent_answer(&next, text, observed_at, changed)?;
+            let revision = (provider == "claude"
+                && next.activity.capabilities.results
+                && next.activity.result.revision > 0)
+                .then_some(next.activity.result.revision);
+            store.save_agent_answer(&next, text, observed_at, revision, changed)?;
         } else if changed {
             store.session(&next)?;
         }
@@ -733,17 +744,6 @@ impl LiveSession {
             bail!("CLI уже завершился; вложение не сохранено");
         }
         Ok(())
-    }
-
-    pub fn working_root_identity(&self) -> Result<(u64, u64)> {
-        #[cfg(unix)]
-        {
-            Ok(self.root_identity)
-        }
-        #[cfg(not(unix))]
-        {
-            bail!("Вложения пока доступны только на macOS/Linux")
-        }
     }
 
     pub fn verify_root(&self, root_id: &str, root: &Path) -> Result<()> {

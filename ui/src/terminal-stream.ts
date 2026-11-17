@@ -22,6 +22,7 @@ export class TerminalStream {
   private processingOutput = false;
   private readyTimer: ReturnType<typeof setTimeout>;
   private heartbeat: ReturnType<typeof setInterval>;
+  private probeTimer: ReturnType<typeof setTimeout> | undefined;
   private lastMessage = Date.now();
   private pending = new Map<number, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
@@ -79,7 +80,10 @@ export class TerminalStream {
         else throw failure;
       } else if (frame.type === 'end') {
         this.ended = true; this.close(); this.options.onEnd();
-      } else if (frame.type !== 'pong') throw new Error('Некорректный поток терминала.');
+      } else if (frame.type === 'pong') {
+        clearTimeout(this.probeTimer);
+        this.probeTimer = undefined;
+      } else throw new Error('Некорректный поток терминала.');
     } catch (error) { this.fail(error instanceof Error ? error : new Error('Некорректный поток терминала.')) }
   }
   private async command(value: Record<string, unknown>) {
@@ -98,6 +102,13 @@ export class TerminalStream {
     for (const chunk of terminalInputChunks(data)) await this.command({ type: 'input', data: chunk });
   }
   resize(cols: number, rows: number) { return this.command({ type: 'resize', cols, rows }) }
+  probe() {
+    if (!this.connected || this.disposed || this.probeTimer !== undefined) return;
+    const failure = new Error('Соединение терминала прервано. Неподтверждённый ввод не повторяется.');
+    this.probeTimer = setTimeout(() => this.fail(failure), 2000);
+    try { this.send({ type: 'ping' }) }
+    catch { this.fail(failure) }
+  }
   private fail(error: Error) {
     if (this.disposed) return;
     this.close(error);
@@ -105,7 +116,7 @@ export class TerminalStream {
   }
   close(error = new Error('Поток терминала закрыт.')) {
     if (this.disposed) return;
-    this.disposed = true; clearTimeout(this.readyTimer); clearInterval(this.heartbeat);
+    this.disposed = true; clearTimeout(this.readyTimer); clearInterval(this.heartbeat); clearTimeout(this.probeTimer);
     this.readyReject(error);
     for (const operation of this.pending.values()) { clearTimeout(operation.timer); operation.reject(error) }
     this.pending.clear();

@@ -46,6 +46,24 @@ pub struct SaveDefaults {
     pub make_default_agent: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct EnvironmentDefault {
+    pub project_id: String,
+    pub root_id: String,
+    pub agent_id: String,
+    pub env_file: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SaveEnvironmentDefault {
+    pub project_id: String,
+    pub root_id: String,
+    pub agent_id: String,
+    pub env_file: Option<String>,
+    pub expected_env_file: Option<String>,
+}
+
 impl LaunchDefaults {
     pub fn resolve(&self, project: &str, agent: &str, main_root: &str) -> AccessSettings {
         let mut access = self

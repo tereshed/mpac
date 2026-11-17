@@ -7,12 +7,14 @@ import type { GitBranches } from './git-branches'
 import './branch-select.css'
 
 interface Candidate { branch: string; expected: GitBranches }
+const BRANCH_POLL_INTERVAL = 7000
+const BRANCH_REQUEST_TIMEOUT = 20000
 
 export default function BranchSelect({ token, projectId, rootId, revision, onBeforeSwitch, onAfterSwitch, onExternalChange, onOpenCommit, onStateChange, onDialogChange }: {
   token: string; projectId: string; rootId: string; revision: number;
   onBeforeSwitch: () => void; onAfterSwitch: (switched: boolean) => void; onExternalChange: () => void;
   onOpenCommit?: () => void;
-  onStateChange?: (state: GitBranches) => void;
+  onStateChange?: (state: GitBranches | null) => void;
   onDialogChange?: (open: boolean) => void;
 }) {
   const [state, setState] = useState<GitBranches | null>(null)
@@ -24,7 +26,6 @@ export default function BranchSelect({ token, projectId, rootId, revision, onBef
   const [mutationError, setMutationError] = useState('')
   const [busy, setBusy] = useState(false)
   const [retry, setRetry] = useState(0)
-  const [poll, setPoll] = useState(0)
   const mounted = useRef(true)
   const pending = useRef(false)
   const generation = useRef(0)
@@ -33,6 +34,8 @@ export default function BranchSelect({ token, projectId, rootId, revision, onBef
   const confirmed = useRef<GitBranches | null>(null)
   const context = token + '\0' + projectId + '\0' + rootId
   const latestContext = useRef(context)
+  const branchCallbacks = useRef({ onExternalChange, onStateChange })
+  branchCallbacks.current = { onExternalChange, onStateChange }
   if (latestContext.current !== context) { latestContext.current = context; generation.current += 1 }
 
   useEffect(() => {
@@ -40,26 +43,70 @@ export default function BranchSelect({ token, projectId, rootId, revision, onBef
     return () => { mounted.current = false; mutation.current?.abort() }
   }, [])
   useEffect(() => {
-    const timer = setInterval(() => { if (!pending.current) setPoll(value => value + 1) }, 7000)
-    return () => clearInterval(timer)
-  }, [])
-  useEffect(() => {
-    if (pending.current) return
-    const abort = new AbortController()
-    listing.current = abort
-    const requested = ++generation.current
-    if (!confirmed.current) setLoading(true)
-    setError('')
-    api<GitBranches>(token, `/projects/${projectId}/branches?${query({ root_id: rootId })}`, undefined, abort.signal)
-      .then(result => {
-        if (abort.signal.aborted || !mounted.current || requested !== generation.current) return
-        if (confirmed.current && branchIdentityChanged(confirmed.current, result)) { onExternalChange(); setNotice('') }
-        confirmed.current = result; setState(result); onStateChange?.(result)
-      })
-      .catch(failure => { if (!abort.signal.aborted && mounted.current && requested === generation.current) { setState(null); setError(errorMessage(failure)) } })
-      .finally(() => { if (!abort.signal.aborted && mounted.current && requested === generation.current) setLoading(false) })
-    return () => { abort.abort(); if (listing.current === abort) listing.current = null }
-  }, [token, projectId, rootId, revision, retry, poll])
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let request: AbortController | null = null
+    let refreshOnCompletion = false
+    const visible = () => document.visibilityState !== 'hidden'
+    const refresh = async () => {
+      if (disposed || pending.current || request || !visible()) return
+      clearTimeout(timer)
+      const abort = new AbortController()
+      request = abort
+      listing.current = abort
+      const requested = ++generation.current
+      const current = () => !abort.signal.aborted && mounted.current && requested === generation.current
+      if (!confirmed.current) setLoading(true)
+      try {
+        const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(BRANCH_REQUEST_TIMEOUT)])
+        const result = await api<GitBranches>(token, `/projects/${projectId}/branches?${query({ root_id: rootId })}`, undefined, signal)
+        if (!current()) return
+        if (confirmed.current && branchIdentityChanged(confirmed.current, result)) {
+          branchCallbacks.current.onExternalChange()
+          setNotice('')
+        }
+        confirmed.current = result
+        setError('')
+        setState(result)
+        branchCallbacks.current.onStateChange?.(result)
+      } catch (failure) {
+        if (!current()) return
+        setState(null)
+        setError(errorMessage(failure))
+        branchCallbacks.current.onStateChange?.(null)
+      } finally {
+        if (current()) setLoading(false)
+        if (listing.current === abort) listing.current = null
+        request = null
+        if (!disposed && !pending.current && visible()) {
+          // Wait for the read to settle before scheduling another one.
+          timer = setTimeout(refresh, refreshOnCompletion ? 0 : BRANCH_POLL_INTERVAL)
+        }
+        refreshOnCompletion = false
+      }
+    }
+    const resume = () => {
+      if (request) refreshOnCompletion = true
+      else void refresh()
+    }
+    const visibilityChanged = () => {
+      if (!visible()) clearTimeout(timer)
+      else resume()
+    }
+    window.addEventListener('focus', resume)
+    window.addEventListener('pageshow', resume)
+    document.addEventListener('visibilitychange', visibilityChanged)
+    resume()
+    return () => {
+      disposed = true
+      clearTimeout(timer)
+      request?.abort()
+      if (listing.current === request) listing.current = null
+      window.removeEventListener('focus', resume)
+      window.removeEventListener('pageshow', resume)
+      document.removeEventListener('visibilitychange', visibilityChanged)
+    }
+  }, [token, projectId, rootId, revision, retry])
 
   const choose = (branch: string) => {
     if (!state || pending.current || loading || error || branch === state.current || !branch) return
@@ -101,7 +148,7 @@ export default function BranchSelect({ token, projectId, rootId, revision, onBef
   const missingCandidate = !!candidate && !!state && !state.branches.some(branch => branch.name === candidate.branch)
   const confirmDisabled = busy || loading || !state || !!error || !!blocked || staleCandidate || missingCandidate
   return <div className="branch-control">
-    {state?.is_repo === false ? <span className="branch-non-repo">{t("⑂ Не Git-репозиторий")}</span> : <label className="branch-picker"><span>{t("⑂ Ветка")}</span><select aria-label={t("Ветка Git")} value={state?.current || ''} disabled={loading || busy || !state || !!error} onChange={event => choose(event.target.value)} aria-describedby={blocked || error ? 'git-branch-description' : undefined}>
+    {state?.is_repo === false ? <span className="branch-non-repo">{t("⑂ Не Git-репозиторий")}</span> : <label className="branch-picker"><span>{t("⑂ Ветка")}</span><select aria-label={t("Ветка Git")} title={state ? currentBranchLabel(state) : undefined} value={state?.current || ''} disabled={loading || busy || !state || !!error} onChange={event => choose(event.target.value)} aria-describedby={blocked || error ? 'git-branch-description' : undefined}>
       {(!state?.current || !currentPresent) && <option value={state?.current || ''}>{loading ? t("Загружаем…") : state ? currentBranchLabel(state) : t("Недоступна")}</option>}
       {state?.branches.map(branch => <option key={branch.name} value={branch.name}>{branch.name}{branch.current ? state.head === 'unborn' ? t(" · без коммитов") : t(" · текущая") : ''}</option>)}
     </select></label>}

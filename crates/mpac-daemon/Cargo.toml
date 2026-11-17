@@ -20,6 +20,8 @@ fs2 = "0.4"
 mpac-workspace = { path = "../mpac-workspace" }
 mpac-runtime = { path = "../mpac-runtime" }
 cap-std = "=4.0.3"
+toml_edit = "0.25"
+url = "2.5"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

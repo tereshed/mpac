@@ -10,13 +10,14 @@ import Modal from './Modal'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import { ApiError, api, reconnectToDaemon, connectToDaemon, connectionErrorMessage, errorMessage, forgetRememberedToken, initialToken, isRunning, rememberVerifiedToken } from './api'
-import type { LaunchDefaults, Project, Session, State } from './api'
+import type { LaunchDefaults, LaunchEnvironmentDefault, Project, Session, State } from './api'
 import TerminalPane from './TerminalPane'
 import FilesPane from './FilesPane'
 import ReviewPane from './ReviewPane'
 import ProjectEditor from './ProjectEditor'
 import ProjectRow from './ProjectRow'
 import ProjectSessions from './ProjectSessions'
+import DesktopSessionRail from './DesktopSessionRail'
 import { ArchivedSessionsDialog, DeleteSessionDialog, RenameSessionDialog } from './SessionDialogs'
 import { needsAttention, nextSessionAfterRemoval, readPreference, savePreference } from './session-management'
 import type { SessionView } from './session-management'
@@ -25,6 +26,7 @@ import { ArchivedProjectsDialog, DeleteProjectDialog } from './ProjectDialogs'
 import { reconcileProjectSelection } from './project-management'
 import LaunchSession from './LaunchSession'
 import LaunchDefaultsDialog from './LaunchDefaultsDialog'
+import ProjectToolsDialog from './ProjectToolsDialog'
 import RepositoryToolbar from './RepositoryToolbar'
 import { resolveTerminalFileLink } from './terminal-file-links'
 import type { FileOpenRequest } from './file-navigation'
@@ -68,6 +70,7 @@ export default function App() {
   const mobileViewport = useMobileWorkspace()
   const isMobile = mobileViewport.mobile
   const isTablet = mobileClient() && !isMobile
+  const desktopRail = !isMobile && !mobileClient()
   const [tabletProjectsOpen, setTabletProjectsOpen] = useState(() => window.innerWidth >= 1100)
   const [mobileSheet, setMobileSheet] = useState<MobileSheet>(null)
   const [mobileDockHeight, setMobileDockHeight] = useState(112)
@@ -83,10 +86,16 @@ export default function App() {
   const [connectionError, setConnectionError] = useState('')
   const [projectId, setProjectId] = useState(() => readPreference('mpac-selected-project', ''))
   const [sessionId, setSessionId] = useState('')
+  const startupSession = useRef('')
+  const claimStartupQueries = (id: string) => {
+    if (startupSession.current !== id) return false
+    startupSession.current = ''
+    return true
+  }
   const [rootId, setRootId] = useState('')
   const [tab, setTab] = useState<Tab>('terminal')
   const [voice, setVoice] = useState<VoiceSettings | null>(null)
-  const [modal, setModal] = useState<'project' | 'session' | 'delete_project' | 'archived_projects' | 'delete_session' | 'archived_sessions' | 'rename_session' | 'launch_defaults' | 'voice_settings' | null>(null)
+  const [modal, setModal] = useState<'project' | 'session' | 'delete_project' | 'archived_projects' | 'delete_session' | 'archived_sessions' | 'rename_session' | 'launch_defaults' | 'project_tools' | 'voice_settings' | null>(null)
   const [phoneDialog, setPhoneDialog] = useState(false)
   const [workspaceToolsOpen, setWorkspaceToolsOpen] = useState(false)
   const [modalProject, setModalProject] = useState<Project | null>(null)
@@ -107,6 +116,8 @@ export default function App() {
   const projectRevision = useRef(0)
   const [showProjects, setShowProjects] = useState(false)
   const [attentionOnly, setAttentionOnly] = useState(false)
+  const [desktopQueue, setDesktopQueue] = useState(false)
+  const attentionOpen = desktopRail ? desktopQueue : attentionOnly
   const [actionError, setActionError] = useState('')
   const [actionNotice, setActionNotice] = useState('')
   const [stopping, setStopping] = useState(false)
@@ -225,8 +236,8 @@ export default function App() {
     refreshSafely()
   }
 
-  const chooseProject = (id: string) => { setRequestedFile(null); setProjectId(id); savePreference('mpac-selected-project', id); setExpandedProjects(previous => ({ ...previous, [id]: true })); setSessionId(''); setRootId(''); setActionError('') }
-  const chooseSession = (session: Session) => { setMobileSheet(null); setRequestedFile(null); setProjectId(session.project_id); savePreference('mpac-selected-project', session.project_id); setExpandedProjects(previous => ({ ...previous, [session.project_id]: true })); setSessionId(session.id); setRootId(session.root_id); setTab('terminal'); setShowProjects(false); setActionError('') }
+  const chooseProject = (id: string) => { startupSession.current = ''; setRequestedFile(null); setProjectId(id); savePreference('mpac-selected-project', id); setExpandedProjects(previous => ({ ...previous, [id]: true })); setSessionId(''); setRootId(''); setActionError('') }
+  const chooseSession = (session: Session) => { if (startupSession.current !== session.id) startupSession.current = ''; setMobileSheet(null); setRequestedFile(null); setProjectId(session.project_id); savePreference('mpac-selected-project', session.project_id); setExpandedProjects(previous => ({ ...previous, [session.project_id]: true })); setSessionId(session.id); setRootId(session.root_id); setTab('terminal'); setShowProjects(false); setActionError('') }
   const refreshSafely = () => { void refresh().catch(e => setActionError(errorMessage(e))) }
   useEffect(() => {
     setVoice(null)
@@ -241,12 +252,23 @@ export default function App() {
 
   const openProjectEditor = (editing?: Project) => { setModalProject(editing || null); setShowProjects(false); setModal('project') }
   const openDeleteProject = (deleting: Project) => { if (!managementAvailable) return; setModalProject(deleting); setShowProjects(false); setModal('delete_project') }
+  const openProjectTools = state.capabilities?.project_tools === true ? (target: Project) => {
+    setDefaultsProject(target)
+    setShowProjects(false)
+    setModal('project_tools')
+  } : undefined
   const openLaunchDefaults = (target?: Project) => { if (!launchDefaultsAvailable) return; setDefaultsProject(target); setShowProjects(false); setModal('launch_defaults') }
   const launchDefaultsSaved = (defaults: LaunchDefaults) => {
     if (authEpoch !== authGeneration.current) return false
     projectRevision.current += 1
     setState(previous => ({ ...previous, launch_defaults: defaults }))
     setActionNotice(t("Настройки запуска сохранены.")); refreshSafely(); return true
+  }
+  const launchEnvironmentDefaultsSaved = (defaults: LaunchEnvironmentDefault[]) => {
+    if (authEpoch !== authGeneration.current) return
+    projectRevision.current += 1
+    setState(previous => ({ ...previous, launch_environment_defaults: defaults }))
+    refreshSafely()
   }
   const openLaunch = () => { if (project) setModal('session'); else openProjectEditor() }
   const launchInProject = (selected: Project) => { chooseProject(selected.id); setShowProjects(false); setModal('session') }
@@ -348,24 +370,37 @@ export default function App() {
   if (!token || needsAuth) return <Login token={token} initialError={authError} onConnect={connect} />
 
   return <div className={`app-shell session-workspace ${isMobile ? 'mobile-workspace' : ''} ${isTablet ? 'tablet-workspace' : ''} ${isTablet && tabletProjectsOpen ? 'tablet-projects-open' : ''} ${mobileViewport.keyboardOpen ? 'mobile-keyboard' : ''}`} style={isMobile || mobileClient() ? { '--mobile-viewport-height': `${mobileViewport.height}px`, '--mobile-viewport-top': `${mobileViewport.top}px`, '--mobile-viewport-bottom': `${mobileViewport.bottom}px`, '--mobile-dock-height': `${mobileDockHeight}px` } as CSSProperties : undefined}>
-    <aside id="workspace-projects" className={`project-rail ${showProjects ? 'mobile-open' : ''}`} inert={isMobile && !!mobileSheet}>
+    <aside id="workspace-projects" className={`project-rail ${showProjects ? 'mobile-open' : ''} ${desktopRail ? 'compact-desktop-rail' : ''}`} inert={isMobile && !!mobileSheet}>
       <a className="brand" href="/" onClick={e => e.preventDefault()} aria-label="MPAC"><div className="brand-symbol">m<span>·</span></div><div><strong>MPAC</strong><span>{t("Рабочее место агентов")}</span></div></a>
       <div className="rail-heading"><span>{t("ПРОЕКТЫ")}</span><button className="icon-button" aria-label={t("Добавить проект")} title={t("Добавить проект")} onClick={() => openProjectEditor()}>+</button></div>
-      <div className="rail-session-controls"><div className="session-view-toggle" role="group" aria-label={t("Вид сессий")}><button type="button" aria-pressed={sessionView === 'list'} onClick={() => { setSessionView('list'); savePreference('mpac-session-view', 'list') }} title={t("Список сессий")}>{t("☷ Список")}</button><button type="button" aria-pressed={sessionView === 'dots'} onClick={() => { setSessionView('dots'); savePreference('mpac-session-view', 'dots') }} title={t("Компактные кружки")}>{t("⠿ Кружки")}</button></div><button type="button" className={`rail-attention-filter ${attentionOnly ? 'active' : ''}`} aria-pressed={attentionOnly} title={t("Показать только запросы внимания и ошибки")} onClick={() => setAttentionOnly(!attentionOnly)}>{t("◈ Внимание")}</button></div>
+      <div className="rail-session-controls">
+        <div className="session-view-toggle" role="group" aria-label={t("Вид сессий")}>
+          <button type="button" aria-pressed={sessionView === 'list' && !(desktopRail && desktopQueue)} onClick={() => { setSessionView('list'); savePreference('mpac-session-view', 'list'); if (desktopRail) setDesktopQueue(false) }} title={t("Список сессий")}>{t("☷ Список")}</button>
+          <button type="button" aria-pressed={sessionView === 'dots' && !(desktopRail && desktopQueue)} onClick={() => { setSessionView('dots'); savePreference('mpac-session-view', 'dots'); if (desktopRail) setDesktopQueue(false) }} title={t("Компактные кружки")}>{t("⠿ Кружки")}</button>
+        </div>
+        <button type="button" className={`rail-attention-filter ${attentionOpen ? 'active' : ''}`} aria-pressed={attentionOpen} title={t(desktopRail ? "Сессии по статусам" : "Показать только запросы внимания и ошибки")}
+          onClick={() => desktopRail ? setDesktopQueue(value => !value) : setAttentionOnly(value => !value)}>{t("◈ Внимание")}{desktopRail && !!attention.length && <span className="rail-attention-count">{attention.length}</span>}</button>
+      </div>
+      {desktopRail ? <DesktopSessionRail projects={state.projects} sessions={visibleSessions} agents={launchAgents} selectedProject={project} selectedSession={selectedSession}
+        expandedProjects={expandedProjects} view={sessionView} queue={desktopQueue}
+        canManageProjects={managementAvailable} canManageSessions={sessionManagementAvailable} canRenameSessions={sessionRenameAvailable} canSetLaunchDefaults={launchDefaultsAvailable}
+        onToggleProject={(id, expanded) => setExpandedProjects(previous => ({ ...previous, [id]: expanded }))} onSelectProject={chooseProject} onSelectSession={chooseSession} onLaunch={launchInProject}
+        onEditProject={openProjectEditor} onDeleteProject={openDeleteProject} onLaunchDefaults={openLaunchDefaults} onProjectTools={openProjectTools} onRenameSession={openRenameSession} onDeleteSession={openDeleteSession} /> : <>
       <div className="session-status-legend" aria-label={t("Цвета статусов сессий")}><span title={t("CLI-процесс работает")}><i className="status-dot status-running" />{t("Запущена")}</span><span title={t("Нужен ответ либо произошла ошибка")}><i className="status-dot status-needs_attention" />{t("Внимание")}</span><span title={t("Процесс завершён или остановлен")}><i className="status-dot status-stopped" />{t("Завершена")}</span></div>
       <nav className="project-list" aria-label={t("Проекты и сессии")}>{state.projects.map((p, i) => {
         const projectSessions = state.sessions.filter(s => s.project_id === p.id)
         const expanded = expandedProjects[p.id] ?? p.id === project?.id
-        return <div className="project-group" key={p.id}><ProjectRow project={p} index={i} selected={p.id === project?.id} runningCount={projectSessions.filter(isRunning).length} sessionCount={projectSessions.length} expanded={expanded} onToggle={() => setExpandedProjects(previous => ({ ...previous, [p.id]: !expanded }))} canManage={managementAvailable} onSelect={() => chooseProject(p.id)} onEdit={() => openProjectEditor(p)} onDelete={() => openDeleteProject(p)} onLaunchDefaults={launchDefaultsAvailable ? () => openLaunchDefaults(p) : undefined} />{expanded && <ProjectSessions project={p} sessions={projectSessions} agents={launchAgents} selectedId={selectedSession?.id || ''} view={sessionView} attentionOnly={attentionOnly} canManage={sessionManagementAvailable} onSelect={chooseSession} onDelete={openDeleteSession} onLaunch={() => launchInProject(p)} />}</div>
+        return <div className="project-group" key={p.id}><ProjectRow project={p} index={i} selected={p.id === project?.id} runningCount={projectSessions.filter(isRunning).length} sessionCount={projectSessions.length} expanded={expanded} onToggle={() => setExpandedProjects(previous => ({ ...previous, [p.id]: !expanded }))} canManage={managementAvailable} onSelect={() => chooseProject(p.id)} onEdit={() => openProjectEditor(p)} onDelete={() => openDeleteProject(p)} onLaunchDefaults={launchDefaultsAvailable ? () => openLaunchDefaults(p) : undefined} onProjectTools={openProjectTools && (() => openProjectTools(p))} />{expanded && <ProjectSessions project={p} sessions={projectSessions} agents={launchAgents} selectedId={selectedSession?.id || ''} view={sessionView} attentionOnly={attentionOnly} canManage={sessionManagementAvailable} onSelect={chooseSession} onDelete={openDeleteSession} onLaunch={() => launchInProject(p)} />}</div>
       })}</nav>
       <button className="add-project" onClick={() => openProjectEditor()}>{t("＋ Добавить проект")}</button>
+      </>}
       {isMobile && actionNotice && <div className="mobile-menu-notice" role="status"><span>{t(actionNotice)}</span><button type="button" className="icon-button" onClick={() => setActionNotice('')} aria-label={t('Закрыть уведомление')}>×</button></div>}
       {isMobile && showProjects && <button type="button" className="mobile-rail-close" onClick={() => setShowProjects(false)}>{t("Готово · к рабочему месту")}</button>}
       <div className="rail-bottom"><button type="button" className="workspace-tools-trigger" onClick={() => { setShowProjects(false); setMobileSheet(null); setWorkspaceToolsOpen(true) }}><span aria-hidden="true">⚙</span><span>{t('Настройки и подключения')}</span><i className={`tiny-dot ${connected ? '' : 'offline'}`} aria-label={connected ? t('Подключено') : t('Нет соединения')} /></button></div>
     </aside>
     {showProjects && <div className="mobile-scrim" onClick={() => setShowProjects(false)} />}
     <main className="workspace" inert={isMobile && (!!mobileSheet || showProjects)}>
-      <header className="workspace-header"><div className="header-title">{isTablet && <button type="button" className="tablet-projects-toggle" aria-label={t(tabletProjectsOpen ? 'Скрыть проекты' : 'Показать проекты')} aria-expanded={tabletProjectsOpen} aria-controls="workspace-projects" onClick={() => setTabletProjectsOpen(value => !value)}>☰</button>}<button className="icon-button mobile-menu" onClick={() => setShowProjects(!showProjects)} aria-label={t("Проекты")}>☰</button><span className="breadcrumb">{t("Рабочее пространство")}{' '}<span>/</span></span><h1>{project?.name || t("Ваши проекты")}</h1><span className="prototype-badge">LOCAL</span></div><div className="header-actions"><div className="header-session-summary" aria-label={t("Сводка сессий")}><span className="overview-inline-stat" title={t("CLI-процесс работает")}><i className="status-dot status-running" /><strong>{live.length}</strong>{' '}{t("запущено")}</span><button type="button" className={`overview-inline-stat overview-attention ${attentionOnly ? 'active' : ''}`} aria-pressed={attentionOnly} onClick={() => { if (isMobile) { setMobileSheet('attention'); return }; setAttentionOnly(!attentionOnly); if (!attentionOnly) setExpandedProjects(Object.fromEntries(state.projects.filter(p => attention.some(s => s.project_id === p.id)).map(p => [p.id, true]))) }}><i className="status-dot status-needs_attention" /><strong>{attention.length}</strong>{' '}{t(attention.length === 1 ? "требует внимания" : "требуют внимания")}</button></div><LanguageSwitcher /><span className="connection"><i className={`tiny-dot ${connected ? '' : 'offline'}`} />{connected ? t("Подключено") : t("Переподключение…")}</span><button className="button primary" aria-label={project ? t("Новая сессия") : t("Добавить проект")} onClick={openLaunch}>＋ <span>{project ? t("Новая сессия") : t("Добавить проект")}</span></button></div></header>
+      <header className="workspace-header"><div className="header-title">{isTablet && <button type="button" className="tablet-projects-toggle" aria-label={t(tabletProjectsOpen ? 'Скрыть проекты' : 'Показать проекты')} aria-expanded={tabletProjectsOpen} aria-controls="workspace-projects" onClick={() => setTabletProjectsOpen(value => !value)}>☰</button>}<button className="icon-button mobile-menu" onClick={() => setShowProjects(!showProjects)} aria-label={t("Проекты")}>☰</button><span className="breadcrumb">{t("Рабочее пространство")}{' '}<span>/</span></span><h1>{project?.name || t("Ваши проекты")}</h1><span className="prototype-badge">LOCAL</span></div><div className="header-actions"><div className="header-session-summary" aria-label={t("Сводка сессий")}><span className="overview-inline-stat" title={t("CLI-процесс работает")}><i className="status-dot status-running" /><strong>{live.length}</strong>{' '}{t("запущено")}</span><button type="button" className={`overview-inline-stat overview-attention ${attentionOpen ? 'active' : ''}`} aria-pressed={attentionOpen} onClick={() => { if (isMobile) { setMobileSheet('attention'); return }; if (desktopRail) { setDesktopQueue(value => !value); return }; setAttentionOnly(!attentionOnly); if (!attentionOnly) setExpandedProjects(Object.fromEntries(state.projects.filter(p => attention.some(s => s.project_id === p.id)).map(p => [p.id, true]))) }}><i className="status-dot status-needs_attention" /><strong>{attention.length}</strong>{' '}{t(attention.length === 1 ? "требует внимания" : "требуют внимания")}</button></div><LanguageSwitcher /><span className="connection"><i className={`tiny-dot ${connected ? '' : 'offline'}`} />{connected ? t("Подключено") : t("Переподключение…")}</span><button className="button primary" aria-label={project ? t("Новая сессия") : t("Добавить проект")} onClick={openLaunch}>＋ <span>{project ? t("Новая сессия") : t("Добавить проект")}</span></button></div></header>
       {connectionError && <div className="connection-banner" role="status">{t("Нет связи с daemon: {p0}. Повторяем подключение…", {p0: t(connectionError)})}</div>}
 
       {!isMobile && lastArchivedProject && <div className="project-undo-banner" role="status"><span>{t("Проект «{p0}» удалён из приложения. Файлы и история сохранены.", {p0: lastArchivedProject.name})}</span>{managementAvailable && <button className="text-button" disabled={!!restoringProjectId} onClick={() => { void restoreProject(lastArchivedProject).catch(failure => setActionError(errorMessage(failure))) }}>{restoringProjectId === lastArchivedProject.id ? t("Восстанавливаем…") : t("Восстановить")}</button>}<button className="icon-button" aria-label={t("Закрыть уведомление об удалении")} disabled={!!restoringProjectId} onClick={() => setLastArchivedProject(null)}>×</button></div>}
@@ -376,7 +411,7 @@ export default function App() {
 
         <section className="main-panel">{sharedRepositoryAvailable && project && root && <RepositoryToolbar key={repositoryContext} token={token} project={project} root={root} onRoot={setRootId} revision={repositoryRevision} branchesAvailable={state.capabilities?.git_branches === true} commitsAvailable={state.capabilities?.git_commits === true} busy={repositoryBusy} onBeforeMutation={beforeRepositoryMutation} onAfterMutation={afterRepositoryMutation} onExternalChange={repositoryChanged} onDialogChange={setRepositoryDialogOpen} compact={isMobile} />}<div className="panel-tabs"><button className={tab === 'terminal' ? 'active' : ''} onClick={() => setTab('terminal')}><span>▰</span>{' '}{t("Терминал")}</button><button className={tab === 'files' ? 'active' : ''} onClick={() => setTab('files')}><span>▱</span>{' '}{t("Файлы")}</button><button className={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}><span>⑂</span>{' '}{t("Изменения")}</button><div className="panel-tabs-spacer" />{tab === 'terminal' && selectedSession && <span className="tab-session-name">{selectedSession.title}</span>}{tab === 'terminal' && selectedSession && sessionRenameAvailable && <button type="button" className="session-panel-rename" title={t("Изменить название сессии")} aria-label={t("Переименовать сессию {p0}", { p0: selectedSession.title })} onClick={() => openRenameSession(selectedSession)}>✎</button>}{tab === 'terminal' && selectedSession && sessionManagementAvailable && <button type="button" className="session-panel-delete" title={t("Удалить сессию из списка")} aria-label={t("Удалить сессию {p0}", { p0: selectedSession.title })} onClick={() => openDeleteSession(selectedSession)}>⌫</button>}{tab === 'terminal' && selectedSession && isRunning(selectedSession) && <button className="stop-button" aria-label={t("Остановить сессию")} disabled={stopping} onClick={stop}>{stopping ? '…' : '■'} <span>{t("Остановить")}</span></button>}</div>
           {sharedRepositoryAvailable && tab === 'terminal' && selectedSession && root && root.id !== selectedSession.root_id && <div className="notice">{t("Git-панель: {p0}. Терминал работает в папке {p1}.", {p0: root.name, p1: project?.roots.find(item => item.id === selectedSession.root_id)?.name || t("выбранной сессии")})}{' '}<button className="text-button" disabled={repositoryBusy || !project?.roots.some(item => item.id === selectedSession.root_id)} onClick={() => setRootId(selectedSession.root_id)}>{t("К папке сессии")}</button></div>}
-          <div className={`tab-content ${tab === 'terminal' ? '' : 'hidden'}`}>{selectedSession ? <>{selectedSession.error && <div className="inline-error">{t(selectedSession.error)}</div>}<TerminalPane token={token} session={selectedSession} voice={voice} compact={isMobile} autoFocus={!isMobile} visible={tab === 'terminal' && !modal && !reviewLaunch && !mobileSheet && !(isMobile && showProjects) && !repositoryDialogOpen && !workspaceToolsOpen && !phoneDialog} attachmentsAvailable={state.capabilities?.session_attachments === true} streamingAvailable={state.capabilities?.terminal_stream === true} answersAvailable={state.capabilities?.agent_answers === true} resizeAvailable={state.capabilities?.terminal_resize !== false} onOpenFile={openTerminalFile} onMarkActivityRead={markActivityRead} /></> : <div className="empty-state welcome"><div className="welcome-graphic"><span>⌘</span><i /><span>▰</span></div><span className="eyebrow">{t("РАБОТА НАЧИНАЕТСЯ ЗДЕСЬ")}</span><h2>{t("Дайте каждой задаче свою сессию")}</h2><p>{t("Запускайте CLI внутри проекта, следите за выводом")}<br className="desktop-break" />{' '}{t("и возвращайтесь к работе из одного окна.")}</p><button className="button primary" onClick={openLaunch}>{project ? t("Попробовать демо →") : t("Добавить первый проект →")}</button><div className="welcome-features"><span>{t("◉ Локальный запуск")}</span><span>M↓ Markdown</span><span>{t("⑂ Ревью изменений")}</span></div></div>}</div>
+          <div className={`tab-content ${tab === 'terminal' ? '' : 'hidden'}`}>{selectedSession ? <>{selectedSession.error && <div className="inline-error">{t(selectedSession.error)}</div>}<TerminalPane token={token} session={selectedSession} voice={voice} compact={isMobile} autoFocus={!isMobile} visible={tab === 'terminal' && !modal && !reviewLaunch && !mobileSheet && !(isMobile && showProjects) && !repositoryDialogOpen && !workspaceToolsOpen && !phoneDialog} attachmentsAvailable={state.capabilities?.session_attachments === true} streamingAvailable={state.capabilities?.terminal_stream === true} answersAvailable={state.capabilities?.agent_answers === true} resizeAvailable={state.capabilities?.terminal_resize !== false} claimStartupQueries={claimStartupQueries} onOpenFile={openTerminalFile} onMarkActivityRead={markActivityRead} /></> : <div className="empty-state welcome"><div className="welcome-graphic"><span>⌘</span><i /><span>▰</span></div><span className="eyebrow">{t("РАБОТА НАЧИНАЕТСЯ ЗДЕСЬ")}</span><h2>{t("Дайте каждой задаче свою сессию")}</h2><p>{t("Запускайте CLI внутри проекта, следите за выводом")}<br className="desktop-break" />{' '}{t("и возвращайтесь к работе из одного окна.")}</p><button className="button primary" onClick={openLaunch}>{project ? t("Попробовать демо →") : t("Добавить первый проект →")}</button><div className="welcome-features"><span>{t("◉ Локальный запуск")}</span><span>M↓ Markdown</span><span>{t("⑂ Ревью изменений")}</span></div></div>}</div>
           {tab === 'files' && project && root && <div className="tab-content"><FilesPane key={`${authEpoch}:${project.id}:${root.id}`} token={token} project={project} root={root} onRoot={setRootId} branchesAvailable={state.capabilities?.git_branches === true} externalToolbar={sharedRepositoryAvailable} repositoryRevision={repositoryRevision} repositoryBusy={repositoryBusy} commentsAvailable={commentsAvailable} sessions={sessions} onLaunchForReview={openLaunchForReview} onOpenSession={chooseSession} requestedFile={requestedFile?.epoch === authEpoch && requestedFile.projectId === project.id ? requestedFile : null} onFileOpened={requestId => setRequestedFile(previous => previous?.requestId === requestId ? null : previous)} /></div>}
           {tab === 'review' && project && root && <div className="tab-content"><ReviewPane key={`${authEpoch}:${project.id}:${root.id}`} token={token} project={project} root={root} session={selectedSession} onRoot={setRootId} externalToolbar={sharedRepositoryAvailable} repositoryRevision={repositoryRevision} repositoryBusy={repositoryBusy} commentsAvailable={commentsAvailable} sessions={sessions} onLaunchForReview={openLaunchForReview} onOpenSession={chooseSession} onSent={() => { setActionNotice(t("Черновик вставлен в терминал. Проверьте текст и нажмите Enter.")); setTab('terminal'); refreshSafely() }} /></div>}
           {(tab === 'files' || tab === 'review') && !project && <div className="empty-state"><p>{t("Добавьте проект, чтобы читать файлы и смотреть изменения.")}</p></div>}
@@ -402,8 +437,9 @@ export default function App() {
       </div><div className="workspace-tools-footer"><span><i className={`tiny-dot ${connected ? '' : 'offline'}`} /> {connected ? t('Подключено') : t('Нет соединения')} · MPAC 0.1</span><button type="button" className="button secondary compact" onClick={() => { setWorkspaceToolsOpen(false); void disconnect() }}>{t('Отключиться')}</button></div></Modal>}
     {modal === 'voice_settings' && <VoiceSettingsDialog key={authEpoch} token={token} onClose={() => setModal(null)} onSaved={setVoice} />}
     {phoneDialog && <PhoneDialog key={authEpoch} token={token} onClose={() => setPhoneDialog(false)} />}
+    {modal === 'project_tools' && defaultsProject && <ProjectToolsDialog key={`${authEpoch}:${defaultsProject.id}`} token={token} project={defaultsProject} onClose={() => setModal(null)} onApplied={() => setRepositoryRevision(value => value + 1)} />}
     {modal === 'launch_defaults' && state.launch_defaults && <LaunchDefaultsDialog key={`${authEpoch}:${defaultsProject?.id || 'global'}`} token={token} project={defaultsProject} agents={launchAgents} defaults={state.launch_defaults} onClose={() => setModal(null)} onSaved={launchDefaultsSaved} />}
-    {reviewLaunch && reviewLaunch.epoch === authEpoch && <LaunchSession key={`review:${authEpoch}:${reviewLaunch.project.id}`} token={token} project={reviewLaunch.project} agents={launchAgents} rootId={reviewLaunch.rootId} initialRootId={reviewLaunch.rootId} requiredRootIds={reviewLaunch.requiredRootIds} defaults={state.launch_defaults} environmentFilesAvailable={state.capabilities?.session_env_files === true} autoTitleAvailable={state.capabilities?.auto_session_titles === true} onClose={() => setReviewLaunch(null)} onLaunched={saved => { if (authEpoch !== authGeneration.current || currentRepositoryContext.current !== repositoryContext) return; projectRevision.current += 1; setState(previous => ({ ...previous, sessions: [saved, ...previous.sessions.filter(item => item.id !== saved.id)] })); setReviewLaunch(null); reviewLaunch.onReady(saved); refreshSafely() }} />}
-    {modal === 'session' && project && <LaunchSession key={authEpoch} token={token} project={project} agents={launchAgents} rootId={root?.id || ''} defaults={state.launch_defaults} environmentFilesAvailable={state.capabilities?.session_env_files === true} autoTitleAvailable={state.capabilities?.auto_session_titles === true} onClose={() => setModal(null)} onLaunched={s => { if (authEpoch !== authGeneration.current) return; chooseSession(s); setModal(null); refreshSafely() }} />}
+    {reviewLaunch && reviewLaunch.epoch === authEpoch && <LaunchSession key={`review:${authEpoch}:${reviewLaunch.project.id}`} token={token} project={reviewLaunch.project} agents={launchAgents} rootId={reviewLaunch.rootId} initialRootId={reviewLaunch.rootId} requiredRootIds={reviewLaunch.requiredRootIds} defaults={state.launch_defaults} environmentDefaults={state.launch_environment_defaults} onEnvironmentDefaultsSaved={launchEnvironmentDefaultsSaved} environmentFilesAvailable={state.capabilities?.session_env_files === true} autoTitleAvailable={state.capabilities?.auto_session_titles === true} onClose={() => setReviewLaunch(null)} onLaunched={saved => { if (authEpoch !== authGeneration.current || currentRepositoryContext.current !== repositoryContext) return; projectRevision.current += 1; setState(previous => ({ ...previous, sessions: [saved, ...previous.sessions.filter(item => item.id !== saved.id)] })); setReviewLaunch(null); reviewLaunch.onReady(saved); refreshSafely() }} />}
+    {modal === 'session' && project && <LaunchSession key={authEpoch} token={token} project={project} agents={launchAgents} rootId={root?.id || ''} defaults={state.launch_defaults} environmentDefaults={state.launch_environment_defaults} onEnvironmentDefaultsSaved={launchEnvironmentDefaultsSaved} environmentFilesAvailable={state.capabilities?.session_env_files === true} autoTitleAvailable={state.capabilities?.auto_session_titles === true} onClose={() => setModal(null)} onLaunched={s => { if (authEpoch !== authGeneration.current) return; startupSession.current = s.id; chooseSession(s); setModal(null); refreshSafely() }} />}
   </div>
 }

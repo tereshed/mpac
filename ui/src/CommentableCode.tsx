@@ -12,6 +12,32 @@ interface Props {
   blockId?: number; lines: ReviewLine[]; disabled?: boolean; focusLine?: number; focusEndLine?: number; onCreated: (comment: ReviewComment) => void;
 }
 interface Editor { anchor: ReviewAnchor; label: string; excerpt: string; excerptLines?: ReviewLine[]; context: string; snapshot: string }
+
+function closest(node: Node | null, selector: string) {
+  return (node instanceof Element ? node : node?.parentElement)?.closest<HTMLElement>(selector)
+}
+
+function copyCode(event: ClipboardEvent, container: HTMLElement | null) {
+  if (!container || !event.clipboardData || event.defaultPrevented) return
+  if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable]')) return
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return
+  const range = selection.getRangeAt(0)
+  const start = closest(range.startContainer, '.range-code-row > code')
+  const end = closest(range.endContainer, '.range-code-row > code')
+  if (!start || !end || !container.contains(start) || !container.contains(end)) return
+  const codes = Array.from(container.querySelectorAll('.range-code-row > code'))
+  const parts = codes.slice(codes.indexOf(start), codes.indexOf(end) + 1).map(code => {
+    const part = document.createRange()
+    part.selectNodeContents(code)
+    if (code === start) part.setStart(range.startContainer, range.startOffset)
+    if (code === end) part.setEnd(range.endContainer, range.endOffset)
+    return part.toString()
+  })
+  event.clipboardData.setData('text/plain', parts.join('\n'))
+  event.preventDefault()
+}
+
 export default function CommentableCode({ token, projectId, rootId, path, source, snapshot, blockId, lines, disabled = false, focusLine, focusEndLine, onCreated }: Props) {
   const context = token + '\0' + projectId + '\0' + rootId + '\0' + path + '\0' + source + '\0' + (blockId ?? '')
   const [selection, setSelection] = useState<CodeSelection | null>(null)
@@ -37,17 +63,22 @@ export default function CommentableCode({ token, projectId, rootId, path, source
   useEffect(() => {
     const end = () => {
       if (drag.current) { drag.current = null; window.getSelection()?.removeAllRanges(); return }
+      if (disabled || busy) return
       const native = window.getSelection()
       if (!native || native.isCollapsed || !native.toString().trim()) return
-      const element = (node: Node | null) => node instanceof Element ? node : node?.parentElement
-      const first = element(native.anchorNode)?.closest<HTMLElement>('[data-review-row]')
-      const last = element(native.focusNode)?.closest<HTMLElement>('[data-review-row]')
+      const first = closest(native.anchorNode, '[data-review-row]')
+      const last = closest(native.focusNode, '[data-review-row]')
       if (!first || !last || !container.current?.contains(first) || !container.current.contains(last)) return
-      choose({ first: Number(first.dataset.reviewRow), last: Number(last.dataset.reviewRow), side: 'both' }); native.removeAllRanges()
+      choose({ first: Number(first.dataset.reviewRow), last: Number(last.dataset.reviewRow), side: 'both' })
     }
     const cancel = () => { drag.current = null }
     document.addEventListener('pointerup', end); document.addEventListener('pointercancel', cancel)
     return () => { document.removeEventListener('pointerup', end); document.removeEventListener('pointercancel', cancel) }
+  }, [disabled, busy])
+  useEffect(() => {
+    const copy = (event: ClipboardEvent) => copyCode(event, container.current)
+    document.addEventListener('copy', copy)
+    return () => document.removeEventListener('copy', copy)
   }, [])
   const rows = selectedCodeLines(lines, selection)
   const selected = new Set(rows.map(line => line.index))
@@ -81,9 +112,9 @@ export default function CommentableCode({ token, projectId, rootId, path, source
       const target = event.target as Element
       const number = target.closest<HTMLElement>('[data-select-side]')
       const row = target.closest<HTMLElement>('[data-review-row]')
-      if (!row || (!number && !target.closest('code'))) return
-      const side: ReviewSide = number ? number.dataset.selectSide as ReviewSide : 'both'
-      if (number) event.preventDefault()
+      if (!row || !number) return
+      const side = number.dataset.selectSide as ReviewSide
+      event.preventDefault()
       const index = Number(row.dataset.reviewRow), previous = selectionRef.current
       const first = event.shiftKey && previous && previous.side === side ? previous.first : index
       drag.current = { first, side }; choose({ first, last: index, side })
@@ -95,7 +126,7 @@ export default function CommentableCode({ token, projectId, rootId, path, source
         {source === 'diff' && (index === 0 || lines[index - 1].hunk !== line.hunk) && <div className="range-hunk"><span>{t("Блок изменений")}{' '}{line.hunk + 1}</span><button type="button" disabled={disabled || busy} onClick={() => { const hunk = lines.filter(item => item.hunk === line.hunk); choose({ first: hunk[0].index, last: hunk[hunk.length - 1].index, side: 'both' }) }}>{t("Выделить блок")}</button></div>}
         <div className={`range-code-row ${line.kind} ${selected.has(line.index) ? 'range-selected' : ''} ${source === 'file' && focusLine && line.new_line !== null && line.new_line >= focusLine && line.new_line <= (focusEndLine || focusLine) ? 'file-linked-line' : ''}`} data-review-row={line.index} data-source-line={source === 'file' ? line.new_line ?? undefined : undefined}>
           {([['old', line.old_line], ['new', line.new_line]] as const).map(([side, number]) => number === null ? <span key={side} /> : <button type="button" className="range-line-number" key={side} data-select-side={side} aria-label={t("Выбрать {p0} строку {p1}", { p0: side === 'old' ? t("старую") : t("новую"), p1: number })} disabled={disabled || busy} onClick={event => { if (event.detail === 0) { const previous = selectionRef.current; choose({ first: event.shiftKey && previous?.side === side ? previous.first : line.index, last: line.index, side }) } }}>{number}</button>)}
-          <code>{source === 'diff' ? line.kind === 'addition' ? '+ ' : line.kind === 'deletion' ? '− ' : '  ' : ''}{line.text || ' '}</code>
+          <code>{source === 'diff' ? line.kind === 'addition' ? '+ ' : line.kind === 'deletion' ? '− ' : '  ' : ''}{line.text}</code>
           <button type="button" className="range-line-comment" aria-label={t("Комментарий к {p0} строке {p1}", { p0: line.kind === 'deletion' ? t("старой") : t("новой"), p1: line.kind === 'deletion' ? line.old_line : line.new_line })} disabled={disabled || busy} onClick={() => { let value = selectionRef.current; if (!value || !selectedCodeLines(lines, value).some(item => item.index === line.index)) { value = { first: line.index, last: line.index, side: line.kind === 'deletion' ? 'old' : 'new' }; choose(value) } commentSelection(value) }}>+</button>
         </div>
       </div>)}

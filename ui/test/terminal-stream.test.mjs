@@ -72,6 +72,23 @@ test('normal terminal end does not request reconnect or replay', async () => {
   f.socket.frame({ type: 'end' }); await tick(); assert.equal(ended, 1); assert.equal(f.errors.length, 0); assert.equal(f.socket.readyState, 3);
 });
 
+test('returning to the terminal probes transport without sending PTY input', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(); await ready(f);
+  try {
+    f.stream.probe();
+    f.stream.probe();
+    assert.deepEqual(f.socket.sent.slice(1), [{ type: 'ping' }]);
+    f.socket.frame({ type: 'pong' });
+    t.mock.timers.tick(2000);
+    assert.equal(f.errors.length, 0);
+    f.stream.probe();
+    t.mock.timers.tick(2000);
+    assert.equal(f.errors.length, 1);
+    assert.equal(f.socket.readyState, 3);
+  } finally { f.stream.close() }
+});
+
 test('short input bursts merge once with byte-identical control sequences and no implicit Enter', async () => {
   const sent = [], batcher = new TerminalInputBatcher(async data => { sent.push(data) });
   try { await Promise.all(['a', 'é', '\x1b[13;2u', '文'].map(value => batcher.enqueue(value))); assert.deepEqual(sent, ['aé\x1b[13;2u文']); assert.equal(sent[0].includes('\r'), false) }

@@ -8,7 +8,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { ApiError, api, errorMessage, isRunning } from './api'
-import type { Session } from './api'
+import type { Session, State } from './api'
 import TerminalComposer from './TerminalComposer'
 import type { TerminalComposerHandle } from './TerminalComposer'
 import { clipboardFiles, validateTerminalPaste } from './terminal-input'
@@ -28,7 +28,7 @@ function localizeTerminalAccessibility() {
   Terminal.strings.tooMuchOutput = t('Слишком много вывода для чтения. Перейдите к строкам терминала, чтобы прочитать содержимое.')
 }
 
-export default function TerminalPane({ token, session, voice, visible, compact = false, autoFocus = true, attachmentsAvailable = false, streamingAvailable = false, answersAvailable = false, resizeAvailable = true, onOpenFile, onMarkActivityRead }: { token: string; session: Session; voice?: VoiceSettings | null; visible: boolean; compact?: boolean; autoFocus?: boolean; attachmentsAvailable?: boolean; streamingAvailable?: boolean; answersAvailable?: boolean; resizeAvailable?: boolean; onOpenFile?: (reference: string) => void; onMarkActivityRead?: (expectedRevision: number) => Promise<void> }) {
+export default function TerminalPane({ token, session, voice, visible, compact = false, autoFocus = true, attachmentsAvailable = false, streamingAvailable = false, answersAvailable = false, resizeAvailable = true, claimStartupQueries, onOpenFile, onMarkActivityRead }: { token: string; session: Session; voice?: VoiceSettings | null; visible: boolean; compact?: boolean; autoFocus?: boolean; attachmentsAvailable?: boolean; streamingAvailable?: boolean; answersAvailable?: boolean; resizeAvailable?: boolean; claimStartupQueries?: (id: string) => boolean; onOpenFile?: (reference: string) => void; onMarkActivityRead?: (expectedRevision: number) => Promise<void> }) {
   const locale = getLocale()
   const host = useRef<HTMLDivElement>(null)
   const terminal = useRef<Terminal | null>(null)
@@ -52,6 +52,8 @@ export default function TerminalPane({ token, session, voice, visible, compact =
   const [geometryKnown, setGeometryKnown] = useState<boolean | null>(null)
   const mobileRef = useRef(mobileControls); mobileRef.current = mobileControls
   const [history, setHistory] = useState<string | null>(null)
+  const historyView = useRef<HTMLPreElement>(null)
+  const historyOpen = history !== null
   const [answerContext, setAnswerContext] = useState<string | null>(null)
   const canReadAnswer = answersAvailable && (session.agent === 'claude' || session.agent === 'codex')
   const answerOpen = canReadAnswer && answerContext === context
@@ -61,6 +63,7 @@ export default function TerminalPane({ token, session, voice, visible, compact =
   const controlHandler = useRef<{ context: string; input: (data: string) => Promise<void>; newline: () => Promise<void> } | null>(null)
   useEffect(() => { setHistory(null); setControlBusy(false); setReading(''); setGeometryKnown(null); geometryReady.current = false; readerFollow.current = true }, [context, passive])
   useEffect(() => { setAnswerContext(null) }, [context])
+  useEffect(() => { if (historyOpen && !mobileControls) historyView.current?.focus() }, [historyOpen, mobileControls])
   useEffect(() => { if (reader.current && readerFollow.current) reader.current.scrollTop = reader.current.scrollHeight }, [reading])
   useEffect(() => {
     const query = window.matchMedia('(any-pointer: coarse)')
@@ -78,6 +81,7 @@ export default function TerminalPane({ token, session, voice, visible, compact =
   isVisible.current = effectiveVisible
   const streamCapability = useRef(streamingAvailable); streamCapability.current = streamingAvailable
   const resizeCapability = useRef(resizeAvailable); resizeCapability.current = resizeAvailable
+  const observedSequence = useRef(session.seq); observedSequence.current = session.seq
   const running = useRef(isRunning(session))
   const [error, setError] = useState('')
   const [inputError, setInputError] = useState('')
@@ -90,6 +94,9 @@ export default function TerminalPane({ token, session, voice, visible, compact =
     let active = true
     const alive = () => active && latestContext.current === context
     let timer: ReturnType<typeof setTimeout>
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+    let connectionWarningTimer: ReturnType<typeof setTimeout> | undefined
+    let connectionFailure = ''
     let resizeTimer: ReturnType<typeof setTimeout>
     let readingTimer: ReturnType<typeof setTimeout> | undefined
     const rendered = new TerminalRenderQueue()
@@ -102,6 +109,8 @@ export default function TerminalPane({ token, session, voice, visible, compact =
     let legacyWake = false
     let idleDelay = 16
     let capturedPaste: Promise<void>[] | null = null
+    let replayThrough = 0
+    let parsingReplay = false
     let userInputEvent: Event | null = null
     const markUserInput = (event: Event) => { userInputEvent = event }
     const userInputEvents = ['keydown', 'keypress', 'keyup', 'beforeinput', 'input', 'compositionstart', 'compositionupdate', 'compositionend']
@@ -109,6 +118,23 @@ export default function TerminalPane({ token, session, voice, visible, compact =
     setError('')
     setInputError('')
     setResetNotice(false)
+    const showConnectionFailure = () => {
+      if (connectionWarningTimer !== undefined || !connectionFailure || document.hidden) return
+      connectionWarningTimer = setTimeout(() => {
+        connectionWarningTimer = undefined
+        if (alive() && !document.hidden) setError(connectionFailure)
+      }, 2500)
+    }
+    const reportConnectionFailure = (failure: unknown) => {
+      connectionFailure = errorMessage(failure)
+      showConnectionFailure()
+    }
+    const clearConnectionFailure = () => {
+      clearTimeout(connectionWarningTimer)
+      connectionWarningTimer = undefined
+      connectionFailure = ''
+      setError('')
+    }
     const mac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent)
     const fileReference = (text: string) => findTerminalFileLinks(text).some(link => link.start === 0 && link.end === text.length)
     const activateFile = (event: MouseEvent, reference: string) => {
@@ -212,7 +238,9 @@ export default function TerminalPane({ token, session, voice, visible, compact =
         const operation = useStream
           ? connection?.then(channel => { if (alive() && streamReady === connection) return channel.resize(term.cols, term.rows) })
           : api(token, `/sessions/${session.id}/resize`, { cols: term.cols, rows: term.rows }, abort.signal)
-        void operation?.catch(e => { if (alive() && !abort.signal.aborted) setError(errorMessage(e)) })
+        // A background resize may race a closing stream. The output stream
+        // owns connection status, and a new connection will send its size.
+        void operation?.catch(() => { if (previousSize === size) previousSize = '' })
       }, 100)
     }
     const scheduleFit = () => { if (!fitFrame) fitFrame = requestAnimationFrame(() => { fitFrame = 0; fitTerminal() }) }
@@ -242,14 +270,18 @@ export default function TerminalPane({ token, session, voice, visible, compact =
     }
     const input = term.onData(data => {
       if (!data || !alive() || !running.current) return
-      // A mirror must not answer historical cursor/device queries back into a
-      // live agent. Replies generated by xterm start with ESC. Keyboard escape
-      // sequences are accepted only during DOM dispatch or an explicit paste;
-      // printable IME input may arrive asynchronously after compositionend.
-      if (passive && data.startsWith('\x1b') && !userInputEvent?.eventPhase && capturedPaste === null) return
+      const automaticFocusReport = (data === '\x1b[I' || data === '\x1b[O')
+        && !userInputEvent?.eventPhase && capturedPaste === null
+      // xterm emits automatic replies on the same event as typed input. While
+      // parsing retained bytes, keep keyboard escapes, IME input and paste.
+      if ((passive || parsingReplay) && data.startsWith('\x1b') && !userInputEvent?.eventPhase && capturedPaste === null) return
       const operation = enqueueInput(data)
       capturedPaste?.push(operation)
-      void operation.catch(e => { if (alive() && !abort.signal.aborted) setInputError(t("Ввод не подтверждён: {p0} Проверьте терминал перед повтором.", { p0: errorMessage(e) })) })
+      void operation.catch(e => {
+        if (!automaticFocusReport && alive() && !abort.signal.aborted) {
+          setInputError(t("Ввод не подтверждён: {p0} Проверьте терминал перед повтором.", { p0: errorMessage(e) }))
+        }
+      })
     })
 
     const paste = async (text: string) => {
@@ -347,7 +379,14 @@ export default function TerminalPane({ token, session, voice, visible, compact =
       if (!alive()) return
       if (result.reset) { term.reset(); setResetNotice(true) }
       const previous = `${term.cols}x${term.rows}`
-      const supported = await applyTerminalOutput(result, term, passive)
+      const supported = await applyTerminalOutput(result, {
+        cols: term.cols, rows: term.rows,
+        resize: (cols, rows) => term.resize(cols, rows),
+        write(bytes, done, replay) {
+          parsingReplay = replay
+          term.write(bytes, () => { parsingReplay = false; done() })
+        },
+      }, passive, Math.max(0, result.seq - replayThrough))
       if (!alive()) return
       if (passive) {
         geometryReady.current = supported
@@ -361,11 +400,24 @@ export default function TerminalPane({ token, session, voice, visible, compact =
       if (!alive()) return
       stream = null; streamReady = null
       inputBatcher.cancel(failure)
-      setError(errorMessage(failure))
-      clearTimeout(timer)
-      timer = setTimeout(connectStream, 500)
+      reportConnectionFailure(failure)
+      clearTimeout(reconnectTimer)
+      reconnectTimer = setTimeout(connectStream, 500)
+    }
+    const snapshotReplayBoundary = async () => {
+      if (passive || !running.current || claimStartupQueries?.(session.id)) return
+      // Read the live byte position just before attaching. The workspace's
+      // periodic state can be behind a command run in another window.
+      replayThrough = Math.max(replayThrough, observedSequence.current)
+      try {
+        const state = await api<State>(token, '/state', undefined, AbortSignal.any([abort.signal, AbortSignal.timeout(1500)]))
+        const sequence = state.sessions.find(item => item.id === session.id)?.seq
+        if (alive() && sequence !== undefined) replayThrough = Math.max(replayThrough, sequence)
+      } catch { /* Retain the last observed position if the snapshot is unavailable. */ }
     }
     const connectStream = () => {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = undefined
       if (!alive()) return
       const opening = Promise.resolve().then(async () => {
         let address: string
@@ -380,6 +432,7 @@ export default function TerminalPane({ token, session, voice, visible, compact =
           address = url.href
         }
         const after = await rendered.cursor()
+        await snapshotReplayBoundary()
         if (!alive() || streamReady !== opening) throw new Error(t('Поток терминала закрыт.'))
         const channel = new TerminalStream({
           url: address, token, sessionId: session.id, after, native: location.protocol === 'mpac:',
@@ -389,12 +442,12 @@ export default function TerminalPane({ token, session, voice, visible, compact =
             if (!alive() || stream !== channel) return
             streamReady = null
             inputBatcher.cancel(new Error(t('Поток терминала закрыт.')))
-            setError('')
+            clearConnectionFailure()
           },
         })
         stream = channel
         await channel.ready
-        if (alive() && stream === channel) { setError(''); previousSize = ''; scheduleFit() }
+        if (alive() && stream === channel) { clearConnectionFailure(); previousSize = ''; scheduleFit() }
         return channel
       })
       streamReady = opening
@@ -410,13 +463,14 @@ export default function TerminalPane({ token, session, voice, visible, compact =
         bytesRead = result.data_base64.length * 0.75
         await renderOutput(result)
         if (!alive()) return
-        setError('')
+        clearConnectionFailure()
       } catch (e) {
         if (alive() && e instanceof ApiError && e.status === 400) {
+          clearConnectionFailure()
           setError(t("Исполнение недоступно: сессия сохранена в истории после перезапуска daemon. Запустите новую сессию для продолжения."))
           return
         }
-        if (alive() && !abort.signal.aborted) setError(errorMessage(e))
+        if (alive() && !abort.signal.aborted) reportConnectionFailure(e)
       } finally { legacyPolling = false }
       idleDelay = bytesRead ? 16 : Math.min(120, idleDelay + 16)
       if (alive()) timer = setTimeout(poll, legacyWake || bytesRead >= 32 * 1024 ? 0 : running.current ? idleDelay : 750)
@@ -427,13 +481,30 @@ export default function TerminalPane({ token, session, voice, visible, compact =
       if (legacyPolling) legacyWake = true
       else void poll()
     }
+    const resumeConnection = () => {
+      if (document.hidden) return
+      showConnectionFailure()
+      if (reconnectTimer !== undefined) connectStream()
+      else stream?.probe()
+    }
+    const onVisibilityChange = () => {
+      if (!document.hidden) { resumeConnection(); return }
+      clearTimeout(connectionWarningTimer)
+      connectionWarningTimer = undefined
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('focus', resumeConnection)
     if (useStream) connectStream()
-    else void poll()
+    else void snapshotReplayBoundary().then(poll)
     return () => {
       active = false
       abort.abort()
       clearTimeout(timer)
+      clearTimeout(reconnectTimer)
+      clearTimeout(connectionWarningTimer)
       clearTimeout(resizeTimer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('focus', resumeConnection)
       clearTimeout(readingTimer)
       cancelAnimationFrame(fitFrame)
       fitVisible.current = null
@@ -495,14 +566,16 @@ export default function TerminalPane({ token, session, voice, visible, compact =
     if (!term) return
     composer.current?.blurInput()
     term.blur()
+    setAnswerContext(null)
     const normal = terminalReadingText(term.buffer.normal)
     const active = term.buffer.active.type === 'alternate' ? terminalReadingText(term.buffer.active) : ''
     setHistory([normal, active].filter(Boolean).join('\n\n'))
   }
 
   return <div className={`terminal-layout ${compact && focused ? 'mobile-terminal-focused' : ''}`} onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={event => { const files = clipboardFiles(event.dataTransfer); if (files.length) { event.preventDefault(); event.stopPropagation(); composer.current?.stage('', files) } }}>
-    <ActivitySummary key={`activity:${context}`} session={session} compact={compact} dense={!compact} expanded={focused} onToggleExpanded={() => setFocused(value => !value)} onMarkRead={onMarkActivityRead} onBackgroundOpenChange={setBackgroundOpen} tools={<>
+    <ActivitySummary key={`activity:${context}`} session={session} compact={compact} dense={!compact} expanded={focused} quickMarkRead={!answerOpen} onToggleExpanded={() => setFocused(value => !value)} onMarkRead={onMarkActivityRead} onBackgroundOpenChange={setBackgroundOpen} tools={<>
       {resetNotice && <span className="terminal-history-indicator" title={t('Часть старого вывода больше недоступна.')} aria-label={t('Часть старого вывода больше недоступна.')} role="img">⚠</span>}
+      {!mobileControls && <button className="terminal-answer-toggle" type="button" aria-pressed={historyOpen} onClick={() => historyOpen ? setHistory(null) : readHistory()}>{t('История')}</button>}
       {canReadAnswer && <button className="terminal-answer-toggle" type="button" aria-pressed={answerOpen} onClick={() => {
         if (answerOpen) { setAnswerContext(null); return }
         terminal.current?.blur()
@@ -523,8 +596,18 @@ export default function TerminalPane({ token, session, voice, visible, compact =
       <div className={`terminal-host ${mobileControls ? 'terminal-touch' : ''}`} ref={host} aria-hidden={history !== null || answerOpen || readingMode} aria-label={t("Терминал: {p0}", { p0: session.title })} />
       {readingMode && <pre ref={reader} className="terminal-reading-text" tabIndex={0} aria-label={t('Текст терминала')} onScroll={event => { const view = event.currentTarget; readerFollow.current = view.scrollHeight - view.clientHeight - view.scrollTop < 48 }}>{geometryKnown === false ? '' : reading || t('Пока нет вывода.')}</pre>}
     </div>
-    {history !== null && <section className="terminal-history" aria-label={t('История вывода')}><p>{t('Снимок доступного вывода. Новые сообщения не сдвигают текст; полноэкранный CLI может хранить меньше истории.')} <button type="button" onClick={readHistory}>{t('Обновить снимок')}</button></p><pre tabIndex={0}>{history || t('Пока нет вывода.')}</pre></section>}
-    {answerOpen && <AgentAnswerPane key={`answer:${context}`} token={token} sessionId={session.id} onClose={() => setAnswerContext(null)} />}
+    {history !== null && <section className="terminal-history" aria-label={t('История вывода')}>
+      <div className="terminal-answer-header">
+        <div><strong>{t('История вывода')}</strong></div>
+        <button type="button" onClick={readHistory}>{t('Обновить снимок')}</button>
+        <button type="button" onClick={() => setHistory(null)}>{t('К терминалу')}</button>
+      </div>
+      <p>{t(resetNotice ? 'Часть старого вывода больше недоступна.' : 'Снимок доступного вывода. Новые сообщения не сдвигают текст; полноэкранный CLI может хранить меньше истории.')}</p>
+      <pre ref={historyView} tabIndex={0}>{history || t('Пока нет вывода.')}</pre>
+    </section>}
+    {answerOpen && <AgentAnswerPane key={`answer:${context}`} token={token} sessionId={session.id} visible={visible && !backgroundOpen}
+      latestRevision={session.activity?.result.revision ?? 0} readRevision={session.activity?.result.read_revision ?? 0}
+      onMarkViewed={onMarkActivityRead} onClose={() => setAnswerContext(null)} />}
     {mobileControls && !answerOpen && <div className="terminal-keypad" aria-label={t('Клавиши CLI')}>
       {moreKeys && <div className="terminal-extra-keys">
         <p>{t('В списке: ↑ ↓ — выбрать пункт, Enter — подтвердить. Space — отметить чекбокс.')}</p>

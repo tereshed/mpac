@@ -211,11 +211,59 @@ async fn full_reply_is_readable_without_pty_and_excludes_subagents_and_stale_tur
     let (status, result) = f.request("GET", &path, Value::Null, &auth).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(result["answer"]["text"], expected);
+    assert_eq!(result["answer"]["revision"], 1);
     let reopened = Store::open(&f.dir.join("state.sqlite3")).unwrap();
     assert_eq!(
         serde_json::to_value(reopened.agent_answer(&f.id).unwrap()).unwrap(),
         result["answer"]
     );
+}
+
+#[tokio::test]
+async fn viewing_an_older_saved_reply_cannot_mark_a_newer_result() {
+    let f = Fixture::new();
+    let answer_path = format!("/api/sessions/{}/answer", f.id);
+    let read_path = format!("/api/sessions/{}/activity/read", f.id);
+    let auth = [
+        ("host", HOST),
+        ("authorization", "Bearer fixture-full-api-token"),
+    ];
+    for (prompt, text) in [
+        ("a", Some("First answer")),
+        ("b", None),
+        ("c", Some("Third answer")),
+    ] {
+        assert_eq!(
+            f.event_request(f.event("UserPromptSubmit", prompt)).await,
+            StatusCode::NO_CONTENT
+        );
+        let mut stop = f.event("Stop", prompt);
+        if let Some(text) = text {
+            stop["last_assistant_message"] = json!(text);
+        }
+        assert_eq!(f.event_request(stop).await, StatusCode::NO_CONTENT);
+        if prompt == "b" {
+            let (_, saved) = f.request("GET", &answer_path, Value::Null, &auth).await;
+            assert_eq!(saved["answer"]["revision"], 1);
+            let (status, _) = f
+                .request("POST", &read_path, json!({"expected_revision": 1}), &auth)
+                .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+    }
+    let (_, saved) = f.request("GET", &answer_path, Value::Null, &auth).await;
+    let revision = saved["answer"]["revision"].clone();
+    assert_eq!(revision, 3);
+    let (status, updated) = f
+        .request(
+            "POST",
+            &read_path,
+            json!({"expected_revision": revision}),
+            &auth,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["activity"]["result"]["read_revision"], 3);
 }
 
 #[tokio::test]
