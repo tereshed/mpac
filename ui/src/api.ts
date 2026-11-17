@@ -140,8 +140,11 @@ export function initialToken(): string {
 
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) { super(message); this.status = status }
+  readonly code?: string
+  constructor(message: string, status: number, code?: string) { super(message); this.status = status; this.code = code }
 }
+
+export const mobileReconnectMessage = 'Переподключаемся к компьютеру…'
 
 export async function authenticatedState(token: string, signal?: AbortSignal): Promise<State> {
   const state = await api<State>(token, '/state', undefined, signal)
@@ -208,7 +211,10 @@ export async function api<T>(token: string, path: string, body?: unknown, signal
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     const value = response.body ? JSON.parse(response.body) : undefined
     if (response.status === 401) window.dispatchEvent(new Event('mpac-mobile-access-lost'))
-    if (response.status < 200 || response.status >= 300) throw new ApiError(t(value?.error || `Error ${response.status}`), response.status)
+    if (response.status < 200 || response.status >= 300) {
+      const code = response.status === 503 && value?.code === 'mpac_host_reconnecting' ? value.code : undefined
+      throw new ApiError(t(code ? mobileReconnectMessage : value?.error || `Error ${response.status}`), response.status, code)
+    }
     return value as T
   }
   const response = await fetch('/api' + path, {

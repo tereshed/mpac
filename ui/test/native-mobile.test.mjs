@@ -30,6 +30,24 @@ test('revoked phone leaves mobile workspace and never falls back to a daemon tok
   } finally { globalThis.window = previous }
 })
 
+test('mobile gateway recovery keeps the pairing and lets the next workspace poll succeed', async () => {
+  const previous = globalThis.window
+  const events = []
+  let response = { status: 503, body: '{"code":"mpac_host_reconnecting","error":"Reconnecting to your computer…"}' }
+  globalThis.window = {
+    __MPAC_NATIVE_MOBILE__: true,
+    dispatchEvent: event => events.push(event.type),
+    __TAURI__: { core: { invoke: async () => response } },
+  }
+  try {
+    await assert.rejects(api('native-mobile', '/state'), error =>
+      error instanceof ApiError && error.status === 503 && error.code === 'mpac_host_reconnecting')
+    response = { status: 200, body: '{"projects":[],"sessions":[],"agents":[]}' }
+    assert.deepEqual(await api('native-mobile', '/state'), { projects: [], sessions: [], agents: [] })
+    assert.deepEqual(events, [])
+  } finally { globalThis.window = previous }
+})
+
 test('failed secure-store deletion preserves the mounted workspace; success disconnects', async () => {
   const previous=globalThis.window
   const events=[]

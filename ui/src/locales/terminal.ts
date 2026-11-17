@@ -45,6 +45,10 @@ export default {
     "en": "{p0} + click — open file\n{p1}",
     "es": "{p0} + clic — abrir archivo\n{p1}"
   },
+  "{p0} + клик — открыть в браузере\n{p1}": {
+    "en": "{p0} + click — open in browser\n{p1}",
+    "es": "{p0} + clic — abrir en el navegador\n{p1}"
+  },
   "{p0} Проверьте терминал перед повторной вставкой.": {
     "en": "{p0} Check the terminal before pasting again.",
     "es": "{p0} Revisa el terminal antes de volver a pegar."

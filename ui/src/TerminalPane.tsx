@@ -13,7 +13,7 @@ import TerminalComposer from './TerminalComposer'
 import type { TerminalComposerHandle } from './TerminalComposer'
 import { clipboardFiles, validateTerminalPaste } from './terminal-input'
 import { directNewlineSequence, isTerminalNewlineKey } from './terminal-keyboard'
-import { findTerminalFileLinks, findTerminalFileLinksInRows, MAX_TERMINAL_LINK_ROWS } from './terminal-file-links'
+import { findTerminalFileLinks, findTerminalLinksInRows, MAX_TERMINAL_LINK_ROWS, terminalWebUrl } from './terminal-file-links'
 import ActivitySummary from './ActivitySummary'
 import { TerminalInputBatcher, TerminalRenderQueue, TerminalStream } from './terminal-stream.ts'
 import type { TerminalOutput } from './terminal-stream.ts'
@@ -137,11 +137,21 @@ export default function TerminalPane({ token, session, voice, visible, compact =
     }
     const mac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent)
     const fileReference = (text: string) => findTerminalFileLinks(text).some(link => link.start === 0 && link.end === text.length)
+    const modifiedLinkClick = (event: MouseEvent) => event.button === 0 && !event.altKey && !event.shiftKey
+      && (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)
     const activateFile = (event: MouseEvent, reference: string) => {
-      if (!alive() || !isVisible.current || !fileOpener.current || event.button !== 0 || event.altKey || event.shiftKey || (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) || !fileReference(reference)) return
+      if (!alive() || !isVisible.current || !fileOpener.current || !modifiedLinkClick(event) || !fileReference(reference)) return
       event.preventDefault(); event.stopPropagation()
       term.clearSelection()
       try { fileOpener.current(reference) } catch (failure) { if (alive()) setInputError(errorMessage(failure)) }
+    }
+    const activateLink = (event: MouseEvent, reference: string) => {
+      const url = terminalWebUrl(reference)
+      if (!url) { activateFile(event, reference); return }
+      if (!event.isTrusted || !alive() || !isVisible.current || !modifiedLinkClick(event) || term.hasSelection()) return
+      event.preventDefault()
+      event.stopPropagation()
+      window.open(url.href, '_blank', 'noopener,noreferrer')
     }
     const term = new Terminal({
       cursorBlink: true, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
@@ -152,9 +162,9 @@ export default function TerminalPane({ token, session, voice, visible, compact =
         red: '#ff8383', green: '#a4edb7', yellow: '#f4ce8c', blue: '#9dc7ff',
         magenta: '#d4adff', cyan: '#90e4df', white: '#e5ecf5',
       },
-      // Override OSC8 activation too: no terminal hyperlink opens an external
-      // browser or executes a scheme. Only modified local references navigate.
-      linkHandler: { allowNonHttpProtocols: true, activate: activateFile },
+      // OSC 8 can also encode local file references. Both handlers validate
+      // the target before passing it to the browser or the file viewer.
+      linkHandler: { allowNonHttpProtocols: true, activate: activateLink },
     })
     terminal.current = term
     const fit = new FitAddon()
@@ -167,18 +177,18 @@ export default function TerminalPane({ token, session, voice, visible, compact =
     element.append(linkHint)
     const hideHint = () => { linkHint.hidden = true }
     const showHint = (event: MouseEvent, text: string) => {
-      if (!alive() || !isVisible.current || !fileOpener.current || !fileReference(text)) { hideHint(); return }
+      if (!alive() || !isVisible.current || (!terminalWebUrl(text) && (!fileOpener.current || !fileReference(text)))) { hideHint(); return }
       const bounds = element.getBoundingClientRect()
       hint.current = { element: linkHint, reference: text, modifier: mac ? '⌘' : 'Ctrl' }
-      linkHint.textContent = t("{p0} + клик — открыть файл\n{p1}", { p0: hint.current.modifier, p1: text })
+      linkHint.textContent = t(terminalWebUrl(text) ? "{p0} + клик — открыть в браузере\n{p1}" : "{p0} + клик — открыть файл\n{p1}", { p0: hint.current.modifier, p1: text })
       linkHint.style.left = Math.max(4, Math.min(bounds.width - 180, event.clientX - bounds.left + 8)) + 'px'
       linkHint.style.top = Math.max(4, event.clientY - bounds.top + 20) + 'px'
       linkHint.hidden = false
     }
-    term.options.linkHandler = { allowNonHttpProtocols: true, activate: activateFile, hover: showHint, leave: hideHint }
+    term.options.linkHandler = { allowNonHttpProtocols: true, activate: activateLink, hover: showHint, leave: hideHint }
     const links = term.registerLinkProvider({
       provideLinks(bufferLineNumber, callback) {
-        if (!alive() || !fileOpener.current) { callback(undefined); return }
+        if (!alive()) { callback(undefined); return }
         const buffer = term.buffer.active
         let start = bufferLineNumber - 1
         while (start > 0 && buffer.getLine(start)?.isWrapped && bufferLineNumber - start < MAX_TERMINAL_LINK_ROWS) start--
@@ -188,8 +198,8 @@ export default function TerminalPane({ token, session, voice, visible, compact =
         let next = start + 1
         while (rows.length < MAX_TERMINAL_LINK_ROWS && buffer.getLine(next)?.isWrapped) { rows.push(buffer.getLine(next)!); next++ }
         if (buffer.getLine(next)?.isWrapped) { callback(undefined); return }
-        callback(findTerminalFileLinksInRows(rows, start + 1).filter(link => link.range.start.y <= bufferLineNumber && link.range.end.y >= bufferLineNumber).map(link => ({
-          ...link, activate: activateFile, hover: showHint, leave: hideHint,
+        callback(findTerminalLinksInRows(rows, start + 1).filter(link => link.range.start.y <= bufferLineNumber && link.range.end.y >= bufferLineNumber && (fileOpener.current || terminalWebUrl(link.text))).map(link => ({
+          ...link, activate: activateLink, hover: showHint, leave: hideHint,
         })))
       },
     })
@@ -470,7 +480,7 @@ export default function TerminalPane({ token, session, voice, visible, compact =
           setError(t("Исполнение недоступно: сессия сохранена в истории после перезапуска daemon. Запустите новую сессию для продолжения."))
           return
         }
-        if (alive() && !abort.signal.aborted) reportConnectionFailure(e)
+        if (alive() && !abort.signal.aborted && !(e instanceof ApiError && e.code === 'mpac_host_reconnecting')) reportConnectionFailure(e)
       } finally { legacyPolling = false }
       idleDelay = bytesRead ? 16 : Math.min(120, idleDelay + 16)
       if (alive()) timer = setTimeout(poll, legacyWake || bytesRead >= 32 * 1024 ? 0 : running.current ? idleDelay : 750)
@@ -533,7 +543,7 @@ export default function TerminalPane({ token, session, voice, visible, compact =
   useEffect(() => {
     localizeTerminalAccessibility()
     terminal.current?.textarea?.setAttribute('aria-label', t('Ввод терминала'))
-    if (hint.current && !hint.current.element.hidden) hint.current.element.textContent = t('{p0} + клик — открыть файл\n{p1}', { p0: hint.current.modifier, p1: hint.current.reference })
+    if (hint.current && !hint.current.element.hidden) hint.current.element.textContent = t(terminalWebUrl(hint.current.reference) ? '{p0} + клик — открыть в браузере\n{p1}' : '{p0} + клик — открыть файл\n{p1}', { p0: hint.current.modifier, p1: hint.current.reference })
   }, [locale])
 
   useEffect(() => {

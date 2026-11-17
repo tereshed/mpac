@@ -130,9 +130,45 @@ export function findTerminalFileLinks(text: string): TerminalFileLink[] {
 export interface TerminalLinkCell { getChars(): string; getWidth(): number }
 export interface TerminalLinkRow { isWrapped: boolean; length: number; getCell(index: number): TerminalLinkCell | undefined }
 export interface TerminalCellLink { text: string; range: { start: { x: number; y: number }; end: { x: number; y: number } } }
+
+export function terminalWebUrl(text: string): URL | null {
+  if (text.length > MAX_REFERENCE || unsafe(text) || /[\s\\]/u.test(text)) return null
+  const authority = /^https?:\/\/([^/?#]+)/i.exec(text)?.[1]
+  if (!authority || authority.includes('@')) return null
+  try {
+    const url = new URL(text)
+    return url.hostname ? url : null
+  } catch { return null }
+}
+
+function findTerminalWebLinks(text: string): TerminalFileLink[] {
+  const links: TerminalFileLink[] = []
+  for (const match of text.matchAll(/(?:^|[\s(<\[{"'`«])((?:https?):\/\/[^\s<>"'`«»]+)/giu)) {
+    const start = match.index + match[0].length - match[1].length
+    let end = start + match[1].length
+    const balance = new Map([[')', 0], [']', 0], ['}', 0]])
+    const closing = new Map([['(', ')'], ['[', ']'], ['{', '}']])
+    for (const character of match[1]) {
+      const closer = closing.get(character)
+      if (closer) balance.set(closer, balance.get(closer)! + 1)
+      else if (balance.has(character)) balance.set(character, balance.get(character)! - 1)
+    }
+    while (end > start) {
+      const trailing = text[end - 1]
+      const count = balance.get(trailing)
+      if (count !== undefined && count < 0) balance.set(trailing, count + 1)
+      else if (!/[.,;:!?]/.test(trailing)) break
+      end--
+    }
+    const address = text.slice(start, end)
+    if (terminalWebUrl(address)) links.push({ start, end, text: address })
+  }
+  return links
+}
+
 /** One complete soft-wrapped logical line. Coordinates are public xterm 1-based
  * buffer cells, including CJK/emoji width and combining-character clusters. */
-export function findTerminalFileLinksInRows(rows: TerminalLinkRow[], firstBufferLine: number): TerminalCellLink[] {
+export function findTerminalLinksInRows(rows: TerminalLinkRow[], firstBufferLine: number): TerminalCellLink[] {
   if (!rows.length || rows.length > MAX_TERMINAL_LINK_ROWS || rows[0].isWrapped || rows.slice(1).some(row => !row.isWrapped)) return []
   let text = ''
   const cells: { start: { x: number; y: number }; end: { x: number; y: number } }[] = []
@@ -150,5 +186,7 @@ export function findTerminalFileLinksInRows(rows: TerminalLinkRow[], firstBuffer
       if (text.length > MAX_TEXT) return []
     }
   }
-  return findTerminalFileLinks(text).flatMap(link => cells[link.start] && cells[link.end - 1] ? [{ text: link.text, range: { start: cells[link.start].start, end: cells[link.end - 1].end } }] : [])
+  const web = findTerminalWebLinks(text)
+  const files = findTerminalFileLinks(text).filter(file => !web.some(link => link.start < file.end && file.start < link.end))
+  return [...web, ...files].flatMap(link => cells[link.start] && cells[link.end - 1] ? [{ text: link.text, range: { start: cells[link.start].start, end: cells[link.end - 1].end } }] : [])
 }

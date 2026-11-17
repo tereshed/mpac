@@ -20,11 +20,11 @@ use std::{
     net::{Ipv4Addr, SocketAddr, TcpListener},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 struct Host {
-    client: NativeClient,
+    upstream: Mutex<Upstream>,
     pairing: Mutex<Pairing>,
     state_dir: PathBuf,
     telegram_state_dir: PathBuf,
@@ -38,6 +38,24 @@ struct Host {
     #[cfg(target_os = "macos")]
     telegram: Mutex<Option<crate::telegram::Telegram>>,
 }
+
+struct Upstream {
+    client: Arc<NativeClient>,
+    next_probe: Instant,
+}
+
+impl Upstream {
+    fn reconnect_after_failure(&mut self, failed: &Arc<NativeClient>) {
+        if !Arc::ptr_eq(&self.client, failed) || Instant::now() < self.next_probe {
+            return;
+        }
+        if let Ok(Some(client)) = failed.reconnect_existing() {
+            self.client = Arc::new(client);
+        }
+        self.next_probe = Instant::now() + Duration::from_secs(1);
+    }
+}
+
 fn computer_name() -> String {
     let mut name = [0u8; 256];
     // gethostname writes at most the provided length; no shell or environment file is evaluated.
@@ -441,12 +459,18 @@ async fn proxy(State(host): State<Arc<Host>>, request: Request) -> Response {
     let result=tokio::task::spawn_blocking(move || {
         let _permit=permit;
         if !host.pairing.lock().unwrap().authenticated(&key){return failure(StatusCode::UNAUTHORIZED,"Device access revoked")}
-        let reply=host.client.request(&method,&path,&body);
+        let client = host.upstream.lock().unwrap().client.clone();
+        let reply = client.request(&method, &path, &body);
+        if reply.is_err() {
+            // Rebind for subsequent requests only. An interrupted mutation
+            // might have reached the previous daemon before it exited.
+            host.upstream.lock().unwrap().reconnect_after_failure(&client);
+        }
         // Revoke never waits for upstream I/O. A command already dispatched
         // may have completed, but no further result is disclosed to that key.
         if !host.pairing.lock().unwrap().authenticated(&key){return failure(StatusCode::UNAUTHORIZED,"Device access revoked")}
         match reply {
-            Ok(mut reply) if !(300..400).contains(&reply.status)=>{
+            Ok(mut reply) if reply.status != 401 && !(300..400).contains(&reply.status)=>{
                 if path=="/api/state" && reply.status==200 {
                     let Ok(mut state)=serde_json::from_slice::<Value>(&reply.body) else{return failure(StatusCode::BAD_GATEWAY,"Invalid computer state")};
                     state["capabilities"]["terminal_stream"]=json!(false);
@@ -456,7 +480,11 @@ async fn proxy(State(host): State<Arc<Host>>, request: Request) -> Response {
                 }
                 (StatusCode::from_u16(reply.status).unwrap_or(StatusCode::BAD_GATEWAY),[("content-type",reply.content_type),("cache-control","no-store".into())],reply.body).into_response()
             },
-            _=>failure(StatusCode::BAD_GATEWAY,"Computer service changed or disconnected. Reconnect the companion on the computer; no command was retried.")
+            _ if method == "GET" => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({
+                "code": "mpac_host_reconnecting",
+                "error": "Reconnecting to your computer…"
+            }))).into_response(),
+            _ => failure(StatusCode::BAD_GATEWAY, "Computer connection interrupted. Check the terminal or workspace before trying again."),
         }
     }).await;
     result.unwrap_or_else(|_| {
@@ -720,7 +748,10 @@ pub fn run() -> Result<()> {
     let control_file = state_dir.join("connect-phone.html");
     private_write(&control_file,format!("<!doctype html><meta name=referrer content=no-referrer><meta http-equiv=refresh content=\"0;url={}\"><title>MPAC · Connect phone</title><a href=\"{}\">Open phone connections</a>",launch["admin_url"].as_str().unwrap(),launch["admin_url"].as_str().unwrap()).as_bytes())?;
     let host = Arc::new(Host {
-        client,
+        upstream: Mutex::new(Upstream {
+            client: Arc::new(client),
+            next_probe: Instant::now(),
+        }),
         pairing: Mutex::new(Pairing::from_devices(devices)),
         state_dir: state_dir.clone(),
         telegram_state_dir,

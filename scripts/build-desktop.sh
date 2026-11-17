@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build an ad-hoc signed local .app. Never installs or starts the application.
+# Build a signed local .app. Never installs or starts the application.
 set -eu
 mpac_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 mpac_debug=false
@@ -7,7 +7,7 @@ case "${1:-}" in
     '') ;;
     --debug) mpac_debug=true; shift ;;
     --help|-h)
-        printf '%s\n' 'Usage: ./scripts/build-desktop.sh [--debug]' 'Release output: target/release/bundle/macos/MPAC.app' 'Debug output: target/debug/bundle/macos/MPAC.app' 'macOS only. Builds local files; does not install, launch or restart a daemon.'
+        printf '%s\n' 'Usage: ./scripts/build-desktop.sh [--debug]' 'Set APPLE_SIGNING_IDENTITY to reuse a macOS signing identity across builds.' 'Release output: target/release/bundle/macos/MPAC.app' 'Debug output: target/debug/bundle/macos/MPAC.app' 'macOS only. Builds local files; does not install, launch or restart a daemon.'
         exit 0 ;;
     *) printf '%s\n' 'Unknown option. Usage: ./scripts/build-desktop.sh [--debug]' >&2; exit 2 ;;
 esac
@@ -49,7 +49,11 @@ else
     mpac_profile=release
 fi
 mpac_bundle="$mpac_root/target/$mpac_profile/bundle/macos/MPAC.app"
-# The final ad-hoc bundle seal must retain microphone access under Hardened Runtime.
-codesign --force --sign - --options runtime --entitlements "$mpac_root/desktop/src-tauri/Entitlements.plist" "$mpac_bundle"
+# Reuse the helper's Keychain identity across Developer ID builds.
+if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+    codesign --force --sign "$APPLE_SIGNING_IDENTITY" --identifier com.mpac.desktop.mobile-host --options runtime "$mpac_bundle/Contents/MacOS/mpac-mobile-host"
+fi
+# Retain the selected signing identity and microphone entitlement in the final seal.
+codesign --force --sign "${APPLE_SIGNING_IDENTITY:--}" --options runtime --entitlements "$mpac_root/desktop/src-tauri/Entitlements.plist" "$mpac_bundle"
 codesign --verify --deep --strict "$mpac_bundle"
 printf '%s\n' "Desktop bundle: $mpac_bundle"

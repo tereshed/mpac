@@ -20,9 +20,11 @@ root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument('--keep', action='store_true')
 parser.add_argument('--bind', default='127.0.0.1')
+parser.add_argument('--fixture-dir', type=Path, help='Fresh fixture directory for isolated checks')
+parser.add_argument('--host-binary', type=Path, default=root/'target/debug/mpac-mobile-host')
 options = parser.parse_args()
-qa = root / '.mpac/mobile-qa'
-qa.mkdir(mode=0o700, exist_ok=True)
+qa = options.fixture_dir.resolve() if options.fixture_dir else root / '.mpac/mobile-qa'
+qa.mkdir(mode=0o700, exist_ok=options.fixture_dir is None)
 daemon_dir = qa / 'daemon'
 host_dir = qa / 'host'
 binary = qa / 'mpac-daemon'
@@ -61,7 +63,7 @@ try:
     launch = wait_json(daemon_dir / 'launch.json', daemon)
     local_token = urllib.parse.parse_qs(urllib.parse.urlsplit(launch['url']).fragment)['token'][0]
     with (qa / 'host.log').open('wb') as log:
-        host = subprocess.Popen([str(root/'target/debug/mpac-mobile-host'), '--data-dir', str(daemon_dir), '--state-dir', str(host_dir), '--bind', options.bind+':0'], stdout=log, stderr=log, start_new_session=True)
+        host = subprocess.Popen([str(options.host_binary.resolve()), '--data-dir', str(daemon_dir), '--state-dir', str(host_dir), '--bind', options.bind+':0'], stdout=log, stderr=log, start_new_session=True)
     processes.append(host)
     remote = wait_json(host_dir / 'launch.json', host)
     admin = urllib.parse.urlsplit(remote['admin_url'])
@@ -116,6 +118,39 @@ try:
     try: call(endpoint+'/api/state', key, context=ssl.create_default_context())
     except urllib.error.URLError: check('unknown certificate rejected before workspace request')
     else: raise AssertionError('System roots unexpectedly trusted private fixture certificate')
+    # Restart only the daemon, leaving the gateway, TLS and device key intact.
+    daemon.send_signal(signal.SIGINT)
+    daemon.wait(timeout=8)
+    status, retry = call(endpoint+'/api/state', key, context=context)
+    assert status == 503 and retry['code'] == 'mpac_host_reconnecting'
+    with (qa / 'daemon.log').open('ab') as log:
+        daemon = subprocess.Popen([str(binary), '--data-dir', str(daemon_dir), '--ui-dir', str(root/'ui/dist'), '--port', '0'], stdout=log, stderr=log, start_new_session=True)
+    processes.append(daemon)
+    launch = wait_json(daemon_dir / 'launch.json', daemon)
+    mutation = {'name': 'Explicit retry fixture', 'paths': [str(qa)]}
+    assert call(endpoint+'/api/projects', key, mutation, context)[0] == 502
+    deadline = time.monotonic() + 10
+    while True:
+        status, recovered = call(endpoint+'/api/state', key, context=context)
+        if status == 200: break
+        assert status == 503 and time.monotonic() < deadline
+        time.sleep(.2)
+    assert host.poll() is None and not any(project['name'] == mutation['name'] for project in recovered['projects'])
+    assert any(session['id'] == session_id for session in recovered['sessions'])
+    assert call(endpoint+'/api/projects', key, mutation, context)[0] == 200
+    status, resumed = call(endpoint+'/api/sessions', key, {'project_id':project['id'], 'root_id':project['roots'][0]['id'], 'agent':'demo', 'title':'Recovered mobile terminal'}, context)
+    assert status == 200
+    terminal = endpoint+'/api/sessions/'+resumed['id']
+    assert call(terminal+'/input', key, {'data':'status\r'}, context)[0] == 200
+    deadline = time.monotonic() + 10
+    while True:
+        status, output = call(terminal+'/output?after=0', key, context=context)
+        assert status == 200
+        if b'status' in base64.b64decode(output['data_base64']): break
+        assert time.monotonic() < deadline
+        time.sleep(.1)
+    assert call(terminal+'/stop', key, {}, context)[0] == 200
+    check('same paired device recovers after daemon restart without replaying a mutation')
     assert call(admin_url+'/admin/revoke', admin_token, {'id':pending['id']})[0] == 200
     assert call(endpoint+'/api/state', key, context=context)[0] == 401
     assert call(endpoint+'/api/sessions/'+session_id+'/input', key, {'data':'must-not-arrive\r'}, context)[0] == 401
@@ -124,15 +159,12 @@ try:
     check('revoked pairing cannot become approved again')
     assert call(admin_url+'/admin/state', 'wrong')[0] == 401
     check('local administration requires independent private credential')
-    # Leave a clean fixture with the demo stopped, ready for native UI pairing.
-    request = urllib.request.Request('http://127.0.0.1:'+str(launch['port'])+'/api/sessions/'+session_id+'/stop',data=b'{}',headers={'Authorization':'Bearer '+local_token,'Content-Type':'application/json'})
-    with urllib.request.urlopen(request,timeout=5) as result: assert result.status == 200
+    # The restarted daemon leaves the previous demo stopped for native UI pairing.
     owned={'daemon_pid':daemon.pid,'host_pid':host.pid,'daemon_data':str(daemon_dir),'host_data':str(host_dir),'binary':str(binary),'endpoint':endpoint}
     (qa/'owned.json').write_text(json.dumps(owned,indent=2)+'\n');(qa/'owned.json').chmod(0o600)
     report={'passed':True,'checks':checks,'scope':'Owned real Rust daemon and HTTPS companion; no main workspace, provider login, or model requests','bind':options.bind}
-    report_dir = root / '.mpac'
-    report_dir.mkdir(exist_ok=True)
-    (report_dir / 'mobile-https-smoke.json').write_text(json.dumps(report,indent=2)+'\n')
+    report_path = qa/'mobile-https-smoke.json' if options.fixture_dir else root/'research/prototype/results/mobile-https-smoke.json'
+    report_path.write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps({'passed':True,'checks':len(checks),'owned_daemon':daemon.pid,'owned_host':host.pid,'endpoint':endpoint}))
 finally:
     if not options.keep or len(checks)<14:

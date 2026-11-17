@@ -114,6 +114,37 @@ impl NativeClient {
         Ok((launch, published))
     }
 
+    /// Used by the mobile gateway after a failed request. Only rebind to the
+    /// same workspace and credential, with the full native ownership proof.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[allow(dead_code)] // This module is also compiled by the desktop client.
+    pub(crate) fn reconnect_existing(&self) -> Result<Option<Self>> {
+        if self.current_launch().is_ok() {
+            return Ok(None);
+        }
+        ensure!(
+            auth_token(&self.data)?.as_deref() == Some(self.token.as_str()),
+            "Local service credential changed; reconnect explicitly"
+        );
+        let lock = open_regular(&self.data.join("daemon.lock"), true, false, false, 4096)?;
+        ensure!(
+            same_file_identity(&self.lock, &lock)?,
+            "Local workspace lock changed; reconnect explicitly"
+        );
+        let connection = connect_existing(&self.data, &lock, &self.token, true)?;
+        let next = Self::new(
+            DesktopConfig {
+                data_dir: self.data.clone(),
+            },
+            connection,
+        )?;
+        ensure!(
+            same_file_identity(&self.lock, &next.lock)?,
+            "Local workspace lock changed during reconnection"
+        );
+        Ok(Some(next))
+    }
+
     fn verified_socket(&self, launch: &Launch, published: SystemTime) -> Result<TcpStream> {
         let address = SocketAddr::from((Ipv4Addr::LOCALHOST, self.connection.port));
         let stream = TcpStream::connect_timeout(&address, Duration::from_millis(500))
@@ -824,7 +855,7 @@ fn process_observation(
     );
     if let Some(pinned) = pinned {
         ensure!(
-            same_executable_file(pinned, &executable)?,
+            same_file_identity(pinned, &executable)?,
             "Service executable changed"
         );
     }
@@ -979,7 +1010,7 @@ fn parse_kernel_original_executable(bytes: &[u8]) -> Result<PathBuf> {
 }
 
 #[cfg(unix)]
-fn same_executable_file(first: &File, second: &File) -> Result<bool> {
+fn same_file_identity(first: &File, second: &File) -> Result<bool> {
     use std::os::unix::fs::MetadataExt;
     let first = first.metadata()?;
     let second = second.metadata()?;
@@ -1030,7 +1061,7 @@ fn observed_process_executable(
     let alias = trusted_process_executable(other_data, path)?;
     if let Some(pinned) = pinned {
         ensure!(
-            same_executable_file(pinned, &alias)?,
+            same_file_identity(pinned, &alias)?,
             "Local executable alias changed its image"
         );
     } else {
@@ -1038,7 +1069,7 @@ fn observed_process_executable(
         trusted_executable(&original)?;
         let original = trusted_executable_file(&original)?;
         ensure!(
-            same_executable_file(&original, &alias)?,
+            same_file_identity(&original, &alias)?,
             "Executable alias does not match the kernel image"
         );
     }
@@ -1686,7 +1717,7 @@ mod tests {
         fs::hard_link(&original, &alias).unwrap();
         fs::remove_file(&original).unwrap();
         let accepted = observed_process_executable(&selected, &alias, 0, Some(&pinned)).unwrap();
-        assert!(same_executable_file(&pinned, &accepted).unwrap());
+        assert!(same_file_identity(&pinned, &accepted).unwrap());
         assert!(observed_process_executable(&selected, &alias, std::process::id(), None).is_err());
         fs::remove_file(&alias).unwrap();
         fs::write(&alias, b"replacement fixture").unwrap();
@@ -1994,6 +2025,13 @@ mod tests {
             matches!(foreign.accept(), Err(error) if error.kind() == io::ErrorKind::WouldBlock),
             "same client must neither reconnect nor send Authorization/mutations to a recycled foreign port"
         );
+        assert!(client.reconnect_existing().is_err());
+        if let Ok((mut probe, _)) = foreign.accept() {
+            probe
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            assert_eq!(probe.read(&mut [0_u8; 1]).unwrap(), 0);
+        }
         drop(client);
         drop(foreign);
     }

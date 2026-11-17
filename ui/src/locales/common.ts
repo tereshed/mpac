@@ -474,6 +474,14 @@ export default {
     "en": "Cannot reach the daemon: {p0}. Reconnecting…",
     "es": "No se puede contactar con el daemon: {p0}. Reconectando…"
   },
+  "Переподключаемся к компьютеру…": {
+    "en": "Reconnecting to your computer…",
+    "es": "Reconectando con tu ordenador…"
+  },
+  "Связь с компьютером прервалась. Проверьте терминал или рабочее пространство перед повтором.": {
+    "en": "Computer connection interrupted. Check the terminal or workspace before trying again.",
+    "es": "Se interrumpió la conexión con el ordenador. Comprueba el terminal o el espacio de trabajo antes de volver a intentarlo."
+  },
   "Проект «{p0}» удалён из приложения. Файлы и история сохранены.": {
     "en": "Project “{p0}” removed from the app. Files and history are preserved.",
     "es": "Proyecto «{p0}» eliminado de la aplicación. Se conservan los archivos y el historial."

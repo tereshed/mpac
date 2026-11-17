@@ -66,6 +66,15 @@ fn is_launcher(url: &url::Url) -> bool {
         && matches!(url.path(), "" | "/" | "/index.html")
 }
 
+#[cfg(target_os = "macos")]
+fn external_browser_url(url: &url::Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
+        && url.host().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.as_str().len() <= 8192
+}
+
 fn connect(state: &NativeState) -> Result<(Connection, DesktopConfig)> {
     let chosen = state.override_dir.lock().unwrap().clone();
     let settings = settings::load(&state.profile, chosen.as_deref())?;
@@ -175,6 +184,8 @@ fn native_main(options: settings::Options) -> Result<()> {
                 _ => {}
             });
             let navigation_app = app.handle().clone();
+            #[cfg(target_os = "macos")]
+            let external_links_app = app.handle().clone();
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("MPAC")
                 .inner_size(1280.0, 850.0)
@@ -189,7 +200,19 @@ fn native_main(options: settings::Options) -> Result<()> {
                     gateway::workspace_url(url)
                         && navigation_app.state::<NativeState>().gateway.ready()
                 })
-                .on_new_window(|_, _| NewWindowResponse::Deny)
+                .on_new_window(move |_url, _| {
+                    #[cfg(target_os = "macos")]
+                    if external_links_app.state::<NativeState>().gateway.ready()
+                        && external_browser_url(&_url)
+                    {
+                        std::thread::spawn(move || {
+                            let _ = std::process::Command::new("/usr/bin/open")
+                                .args(["-u", _url.as_str()])
+                                .status();
+                        });
+                    }
+                    NewWindowResponse::Deny
+                })
                 .on_download(|_, _| false)
                 .on_page_load(|window, payload| {
                     if payload.event() == PageLoadEvent::Finished
@@ -296,6 +319,25 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn external_browser_only_accepts_web_urls_without_credentials() {
+        for address in [
+            "https://example.com/task?x=1#reply",
+            "http://127.0.0.1:8000/",
+        ] {
+            assert!(external_browser_url(&address.parse().unwrap()));
+        }
+        for address in [
+            "file:///tmp/example",
+            "javascript:alert(1)",
+            "mpac://localhost/",
+            "https://user:password@example.com",
+        ] {
+            assert!(!external_browser_url(&address.parse().unwrap()));
+        }
+    }
+
     #[test]
     fn launcher_navigation_cannot_be_redirected_to_other_schemes_or_hosts() {
         // Tauri strips index.html from the initial custom-scheme URL.
