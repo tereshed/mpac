@@ -94,8 +94,7 @@ fn open_connection(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let result = connect(&app.state::<NativeState>()).and_then(|(connection, config)| {
             let data = config.data_dir.clone();
-            // Recover only the configured launchd gateway; never restart agents.
-            let _ = app.state::<NativeState>().phone.restore(&data);
+            let _ = app.state::<NativeState>().phone.restore_on_launch(&data);
             Ok(phone::DesktopTransport {
                 client: NativeClient::new(config, connection)?,
                 data,
@@ -124,6 +123,64 @@ fn open_connection(app: tauri::AppHandle) {
             .busy
             .store(false, Ordering::Release);
     });
+}
+
+#[cfg(target_os = "macos")]
+fn restart_workspace(app: &tauri::AppHandle) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSAlert, NSAlertSecondButtonReturn};
+    use objc2_foundation::NSString;
+
+    let state = app.state::<NativeState>();
+    if state.busy.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    let dialog_app = app.clone();
+    if app.run_on_main_thread(move || {
+        let state = dialog_app.state::<NativeState>();
+        let alert = NSAlert::new(MainThreadMarker::new().expect("AppKit requires the main thread"));
+        alert.setMessageText(&NSString::from_str("Restart MPAC?"));
+        alert.setInformativeText(&NSString::from_str(
+            "MPAC will restart its local service and refresh mobile access using the installed version. Running agent sessions will end and must be resumed manually.",
+        ));
+        alert.addButtonWithTitle(&NSString::from_str("Cancel"));
+        alert.addButtonWithTitle(&NSString::from_str("Restart MPAC"));
+        if alert.runModal() != NSAlertSecondButtonReturn {
+            state.busy.store(false, Ordering::Release);
+            return;
+        }
+        let app = dialog_app.clone();
+        std::thread::spawn(move || {
+            let state = app.state::<NativeState>();
+            let result = (|| -> Result<()> {
+                let executable = tauri::process::current_binary(&app.env())?;
+                anyhow::ensure!(executable.is_file(), "Installed MPAC app is unavailable");
+                let chosen = state.override_dir.lock().unwrap().clone();
+                let settings = settings::load(&state.profile, chosen.as_deref())?;
+                let config = DesktopConfig { data_dir: settings.data_dir };
+                connection::restart_desktop_service(&config, &state.sidecar, &state.ui)?;
+                state.phone.prepare_restart(&config.data_dir)?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => app.request_restart(),
+                Err(error) => {
+                    state.busy.store(false, Ordering::Release);
+                    open_connection(app.clone());
+                    let text = format!("{error:#}");
+                    let _ = app.run_on_main_thread(move || {
+                        let alert = NSAlert::new(MainThreadMarker::new().expect("AppKit requires the main thread"));
+                        alert.setMessageText(&NSString::from_str("MPAC could not complete the restart"));
+                        alert.setInformativeText(&NSString::from_str(&text));
+                        alert.runModal();
+                    });
+                }
+            }
+        });
+    }).is_err() {
+        state.busy.store(false, Ordering::Release);
+    }
 }
 
 fn native_main(options: settings::Options) -> Result<()> {
@@ -169,12 +226,16 @@ fn native_main(options: settings::Options) -> Result<()> {
             let native_menu = tauri::menu::Menu::default(app.handle())?;
             let workspace_menu = tauri::menu::SubmenuBuilder::new(app, "Workspace")
                 .text("reconnect", "Reconnect")
-                .text("show-workspace", "Show workspace")
-                .build()?;
+                .text("show-workspace", "Show workspace");
+            #[cfg(target_os = "macos")]
+            let workspace_menu = workspace_menu.text("restart-mpac", "Restart MPAC…");
+            let workspace_menu = workspace_menu.build()?;
             native_menu.append(&workspace_menu)?;
             app.set_menu(native_menu)?;
             app.on_menu_event(|app, event| match event.id().as_ref() {
                 "reconnect" => open_connection(app.clone()),
+                #[cfg(target_os = "macos")]
+                "restart-mpac" => restart_workspace(app),
                 "show-workspace" => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();

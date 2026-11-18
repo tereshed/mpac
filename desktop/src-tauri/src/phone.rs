@@ -180,11 +180,53 @@ impl Phone {
         Ok(())
     }
     pub fn restore(&self, data: &Path) -> Result<()> {
+        self.restore_access(data, false)
+    }
+
+    pub fn restore_on_launch(&self, data: &Path) -> Result<()> {
+        self.restore_access(data, true)
+    }
+
+    fn restore_access(&self, data: &Path, reopen: bool) -> Result<()> {
         let data = data.canonicalize()?;
         if let Ok(value) = read_launch(&self.preference_path(&data)) {
             let input: Open = serde_json::from_value(value)?;
-            if input.background {
+            let resume = self.preference_path(&data).with_extension("resume");
+            let resume_foreground =
+                reopen && !input.background && read_launch(&resume).ok() == Some(json!(true));
+            if input.background || resume_foreground {
                 self.start(&data, input)?;
+            }
+            if resume_foreground {
+                match fs::remove_file(resume) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn prepare_restart(&self, data: &Path) -> Result<()> {
+        let data = data.canonicalize()?;
+        let mut state = self.running.lock().unwrap();
+        if let Some(running) = state.as_mut() {
+            ensure!(
+                running.data == data,
+                "Mobile access is attached to another workspace"
+            );
+            match &mut running.process {
+                Process::Service { job, .. } => job.restart()?,
+                Process::Child(child) => {
+                    if child.try_wait()?.is_none() {
+                        private_save(
+                            &self.preference_path(&data).with_extension("resume"),
+                            b"true",
+                        )?;
+                    }
+                }
             }
         }
         Ok(())

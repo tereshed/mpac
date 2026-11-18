@@ -102,6 +102,19 @@ impl Service {
         }
         Ok(())
     }
+
+    #[cfg(target_os = "macos")]
+    pub fn restart(&self) -> Result<()> {
+        ensure!(
+            Command::new("/bin/launchctl")
+                .args(["kickstart", "-k", &self.target()])
+                .output()?
+                .status
+                .success(),
+            "Could not restart background mobile access"
+        );
+        Ok(())
+    }
 }
 fn xml(value: &str) -> Result<String> {
     ensure!(

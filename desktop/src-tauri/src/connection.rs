@@ -1318,7 +1318,7 @@ fn launch_path() -> Result<std::ffi::OsString> {
     Ok(std::env::join_paths(paths)?)
 }
 
-fn spawn_daemon(data: &Path, sidecar: &Path, ui: &Path) -> Result<u32> {
+fn spawn_daemon(data: &Path, sidecar: &Path, ui: &Path, port: u16) -> Result<u32> {
     trusted_executable(sidecar)?;
     let sidecar = sidecar.canonicalize()?;
     let ui = ui.canonicalize().context("Bundled UI is unavailable")?;
@@ -1340,7 +1340,8 @@ fn spawn_daemon(data: &Path, sidecar: &Path, ui: &Path) -> Result<u32> {
         .arg(data)
         .arg("--ui-dir")
         .arg(ui)
-        .args(["--port", "0"])
+        .arg("--port")
+        .arg(port.to_string())
         .current_dir(data)
         .env("PATH", launch_path()?)
         .stdin(Stdio::null())
@@ -1374,6 +1375,25 @@ pub fn connect_or_start(
     sidecar: &Path,
     ui_dir: &Path,
 ) -> Result<Connection> {
+    launch_desktop_service(config, sidecar, ui_dir, false)
+}
+
+#[cfg(target_os = "macos")]
+#[allow(dead_code)] // The companion also compiles this module.
+pub(crate) fn restart_desktop_service(
+    config: &DesktopConfig,
+    sidecar: &Path,
+    ui_dir: &Path,
+) -> Result<Connection> {
+    launch_desktop_service(config, sidecar, ui_dir, true)
+}
+
+fn launch_desktop_service(
+    config: &DesktopConfig,
+    sidecar: &Path,
+    ui_dir: &Path,
+    restart: bool,
+) -> Result<Connection> {
     ensure!(
         cfg!(any(target_os = "macos", target_os = "linux")),
         "Local connection verification requires macOS or Linux"
@@ -1395,28 +1415,59 @@ pub fn connect_or_start(
             }
         }
     }
-    let deadline = Instant::now() + START_BUDGET;
     let lock = open_regular(&data.join("daemon.lock"), true, true, false, 4096)?;
     let token = auth_token(&data)?; // Existing invalid credentials are never replaced.
-    let held = match lock.try_lock_exclusive() {
-        Ok(()) => {
-            FileExt::unlock(&lock)?;
-            false
+    let held = daemon_lock_held(&lock)?;
+    #[cfg(target_os = "macos")]
+    let (held, port) = if restart && held {
+        // Check the replacement before interrupting any sessions.
+        trusted_executable(sidecar)?;
+        ensure!(
+            ui_dir.join("index.html").is_file(),
+            "Bundled UI is incomplete"
+        );
+        let token = token
+            .as_deref()
+            .context("The local credential is unavailable")?;
+        let existing = connect_existing(&data, &lock, token, true)?;
+        let client = NativeClient::new(config.clone(), existing)?;
+        let (launch, published) = client.current_launch()?;
+        verify_identity_with_pin(&data, &launch, published, &lock, Some(&client._executable))?;
+        let pid = i32::try_from(launch.pid)?;
+        ensure!(pid > 1, "Unexpected local service PID");
+        if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
+            return Err(io::Error::last_os_error()).context("Could not stop the local service");
         }
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock => true,
-        Err(error) => return Err(error.into()),
+        let deadline = Instant::now() + START_BUDGET;
+        while daemon_lock_held(&lock)? {
+            ensure!(
+                Instant::now() < deadline,
+                "The local service is still shutting down"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
+        (false, launch.port)
+    } else {
+        (held, 0)
     };
+    #[cfg(not(target_os = "macos"))]
+    let port = 0;
     let spawned = if held {
         None
     } else {
-        Some(spawn_daemon(&data, sidecar, ui_dir)?)
+        Some(spawn_daemon(&data, sidecar, ui_dir, port)?)
     };
+    let deadline = Instant::now() + START_BUDGET;
     loop {
         let current = auth_token(&data)?.or_else(|| token.clone());
         let last_error = match current {
             Some(token) => match connect_existing(&data, &lock, &token, held) {
                 Ok(mut connection) => {
                     connection.reused = spawned != Some(connection.pid);
+                    ensure!(
+                        !restart || !connection.reused,
+                        "Another local service started during restart"
+                    );
                     return Ok(connection);
                 }
                 Err(error) => error,
@@ -1429,6 +1480,17 @@ pub fn connect_or_start(
             return Err(last_error).context("Could not verify the local service. Existing processes and credentials were left unchanged");
         }
         thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn daemon_lock_held(lock: &File) -> Result<bool> {
+    match lock.try_lock_exclusive() {
+        Ok(()) => {
+            FileExt::unlock(lock)?;
+            Ok(false)
+        }
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(true),
+        Err(error) => Err(error.into()),
     }
 }
 
