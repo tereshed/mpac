@@ -40,6 +40,8 @@ The build requires Xcode tools and the [Tauri prerequisites for macOS](https://v
 
 While the desktop app is running, it prevents macOS from going to sleep due to inactivity. Closing the window hides the app and keeps this protection active. **⌘Q** quits the app and releases the sleep assertion. The display can still turn off.
 
+After installing a new desktop build, choose **Workspace → Restart MPAC…** to restart the app, the local service, and mobile access if enabled. MPAC asks for confirmation because running agent sessions will end. Projects, saved session records, and paired devices are preserved.
+
 ### Your first five minutes
 
 1. Select the sample project with two repositories. It contains `backend` and `frontend`.
